@@ -25,11 +25,14 @@ from ralph_assets.forms import (
     SplitDevice,
 )
 from ralph_assets.models import Asset, AssetModel, PartInfo
-from ralph_assets.models_history import AssetHistoryChange
 from ralph_assets.models_assets import AssetType
-from ralph_assets.views.base import AssetsBase
+from ralph_assets.views.base import (
+    AssetsBase,
+    HardwareModeMixin,
+    SubmoduleModeMixin,
+)
 from ralph_assets.views.utils import (
-    _create_device,
+    _create_assets,
     _move_data,
     _update_office_info,
     _update_asset,
@@ -40,9 +43,9 @@ from ralph_assets.views.utils import (
 logger = logging.getLogger(__name__)
 
 
-class AddDevice(AssetsBase):
+class AddDevice(HardwareModeMixin, SubmoduleModeMixin, AssetsBase):
+    active_sidebar_item = 'add device'
     template_name = 'assets/add_device.html'
-    sidebar_selected = 'add device'
 
     def get_context_data(self, **kwargs):
         ret = super(AddDevice, self).get_context_data(**kwargs)
@@ -87,34 +90,28 @@ class AddDevice(AssetsBase):
         self.asset_form = device_form_class(self.request.POST, mode=self.mode)
         self._set_additional_info_form()
         if self.asset_form.is_valid() and self.additional_info.is_valid():
-            creator_profile = self.request.user.get_profile()
-            asset_data = {}
-            for f_name, f_value in self.asset_form.cleaned_data.items():
-                if f_name not in {
-                    "barcode", "category", "company", "cost_center",
-                    "department", "employee_id", "imei", "licences", "manager",
-                    "sn", "profit_center", "supports",
-                }:
-                    asset_data[f_name] = f_value
-            sns = self.asset_form.cleaned_data.get('sn', [])
-            barcodes = self.asset_form.cleaned_data.get('barcode', [])
-            imeis = (
-                self.asset_form.cleaned_data.pop('imei')
-                if 'imei' in self.asset_form.cleaned_data else None
+            force_unlink = self.additional_info.cleaned_data.get(
+                'force_unlink', None,
             )
-            ids = []
-            for index in range(len(sns or barcodes)):
-                asset_data['sn'] = sns[index] if sns else None
-                asset_data['barcode'] = barcodes[index] if barcodes else None
-                if imeis:
-                    self.additional_info.cleaned_data['imei'] = imeis[index]
-                device = _create_device(
-                    creator_profile,
-                    asset_data,
-                    self.additional_info.cleaned_data,
-                    self.mode,
+            if self.validate_barcodes(
+                self.asset_form.cleaned_data['barcode'],
+            ) and not force_unlink:
+                msg = _(
+                    "Device with barcode already exist, check"
+                    " 'force unlink' option to relink it."
                 )
-                ids.append(device.id)
+                messages.error(self.request, msg)
+                return super(AddDevice, self).get(*args, **kwargs)
+            try:
+                ids = _create_assets(
+                    self.request.user.get_profile(),
+                    self.asset_form,
+                    self.additional_info,
+                    self.mode
+                )
+            except ValueError as e:
+                messages.error(self.request, e.message)
+                return super(AddDevice, self).get(*args, **kwargs)
             messages.success(self.request, _("Assets saved."))
             cat = self.request.path.split('/')[2]
             if len(ids) == 1:
@@ -131,7 +128,7 @@ class AddDevice(AssetsBase):
         return super(AddDevice, self).get(*args, **kwargs)
 
 
-class EditDevice(AssetsBase):
+class EditDevice(HardwareModeMixin, SubmoduleModeMixin, AssetsBase):
     detect_changes = True
     template_name = 'assets/edit_device.html'
     sidebar_selected = 'edit device'
@@ -152,22 +149,17 @@ class EditDevice(AssetsBase):
         self._set_additional_info_form()
 
     def get_context_data(self, **kwargs):
-        ret = super(EditDevice, self).get_context_data(**kwargs)
-        status_history = AssetHistoryChange.objects.all().filter(
-            asset=kwargs.get('asset_id'), field_name__exact='status'
-        ).order_by('-date')
-        ret.update({
+        context = super(EditDevice, self).get_context_data(**kwargs)
+        context.update({
             'asset_form': self.asset_form,
             'additional_info': self.additional_info,
             'part_form': self.part_form,
             'form_id': 'edit_device_asset_form',
             'edit_mode': True,
-            'status_history': status_history,
             'parts': self.parts,
             'asset': self.asset,
-            'history_link': self.get_history_link(),
         })
-        return ret
+        return context
 
     def _update_additional_info(self, modifier):
         if self.asset.type in AssetType.DC.choices:
@@ -261,12 +253,17 @@ class EditDevice(AssetsBase):
                 self.asset_form.is_valid(),
                 self.additional_info.is_valid(),
             )):
+                force_unlink = self.additional_info.cleaned_data.get(
+                    'force_unlink', None,
+                )
                 modifier_profile = self.request.user.get_profile()
                 self.asset = _update_asset(
                     modifier_profile, self.asset, self.asset_form.cleaned_data
                 )
                 self._update_additional_info(modifier_profile.user)
-                self.asset.save(user=self.request.user)
+                self.asset.save(
+                    user=self.request.user, force_unlink=force_unlink,
+                )
                 self.asset.licence_set.clear()
                 for licence in self.asset_form.cleaned_data.get(
                     'licences', []
@@ -289,16 +286,8 @@ class EditDevice(AssetsBase):
                 )
         return super(EditDevice, self).get(*args, **kwargs)
 
-    def get_history_link(self):
-        asset_id = self.asset.id
-        url = reverse('device_history', kwargs={
-            'asset_id': asset_id,
-            'mode': self.mode,
-        })
-        return url
 
-
-class SplitDeviceView(AssetsBase):
+class SplitDeviceView(SubmoduleModeMixin, AssetsBase):
     template_name = 'assets/split_edit.html'
     sidebar_selected = ''
 

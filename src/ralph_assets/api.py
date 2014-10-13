@@ -255,6 +255,16 @@ class AssetsResource(ModelResource):
     venture = LinkedField(
         field_name='venture', resource_name='venture', null=True,
     )
+    service = fields.ForeignKey(
+        'ralph.discovery.api.ServiceCatalogResource',
+        'service',
+        null=True,
+    )
+    device_environment = fields.ForeignKey(
+        'ralph.discovery.api.DeviceEnvironmentResource',
+        'device_environment',
+        null=True,
+    )
 
     class Meta:
         queryset = Asset.objects.all()
@@ -263,12 +273,13 @@ class AssetsResource(ModelResource):
             'barcode': ALL,
             'delivery_date': ALL,
             'deprecation_rate': ALL,
+            'device_environment': ALL_WITH_RELATIONS,
             'force_deprecation': ALL,
+            'hostname': ALL,
             'invoice_date': ALL,
             'invoice_no': ALL,
             'location': ALL,
             'model': ALL_WITH_RELATIONS,
-            'hostname': ALL,
             'niw': ALL,
             'order_no': ALL,
             'owner': ALL_WITH_RELATIONS,
@@ -279,6 +290,7 @@ class AssetsResource(ModelResource):
             'provider_order_date': ALL,
             'remarks': ALL,
             'request_date': ALL,
+            'service': ALL_WITH_RELATIONS,
             'service_name': ALL_WITH_RELATIONS,
             'slots': ALL,
             'sn': ALL,

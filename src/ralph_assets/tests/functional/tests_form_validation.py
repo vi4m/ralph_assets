@@ -80,7 +80,6 @@ class TestValidations(TestCase):
         # instead of integers we send strings, error should be thrown
         url = '/assets/back_office/add/device/'
         post_data = {
-            'support_period': 'string',
             'size': 'string',
             'invoice_date': 'string',
             'ralph_device_id': '',
@@ -89,10 +88,6 @@ class TestValidations(TestCase):
         send_post = self.client.post(url, post_data)
         self.assertEqual(send_post.status_code, 200)
 
-        # other fields error
-        self.assertFormError(
-            send_post, 'asset_form', 'support_period', 'Enter a whole number.'
-        )
         self.assertFormError(
             send_post, 'asset_form', 'invoice_date', 'Enter a valid date.'
         )

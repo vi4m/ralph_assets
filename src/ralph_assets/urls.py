@@ -31,7 +31,6 @@ from ralph_assets.views.asset import (
     AssetSearch,
     AssetBulkEdit,
     DeleteAsset,
-    HistoryAsset,
 )
 from ralph_assets.views.ajax import CategoryDependencyView, ModelDependencyView
 from ralph_assets.views.data_import import XlsUploadView
@@ -40,7 +39,6 @@ from ralph_assets.views.sam import (
     CountLicence,
     DeleteLicence,
     EditLicence,
-    HistoryLicence,
     LicenceList,
     LicenceBulkEdit,
     SoftwareCategoryList,
@@ -50,7 +48,6 @@ from ralph_assets.views.support import (
     AddSupportView,
     EditSupportView,
     DeleteSupportView,
-    HistorySupport,
 )
 from ralph_assets.views.invoice_report import (
     AssetInvoiceReport,
@@ -98,7 +95,7 @@ urlpatterns = patterns(
         name='dc'),
     url(r'back_office/$',
         RedirectView.as_view(url='/assets/back_office/search'),
-        name='dc'),
+        name='bo'),
 
     url(r'(?P<mode>(back_office|dc))/search',
         login_required(AssetSearch.as_view()),
@@ -121,12 +118,6 @@ urlpatterns = patterns(
     url(r'ajax/dependencies/model/$',
         ModelDependencyView.as_view(),
         name='model_dependency_view'),
-    url(r'(?P<mode>(back_office|dc))/history/device/(?P<asset_id>[0-9]+)/$',
-        login_required(HistoryAsset.as_view()),
-        name='device_history'),
-    url(r'(?P<mode>(back_office|dc))/history/part/(?P<asset_id>[0-9]+)/$',
-        login_required(HistoryAsset.as_view()),
-        name='part_history'),
     url(r'(?P<mode>(back_office|dc))/bulkedit/$',
         login_required(AssetBulkEdit.as_view()),
         name='bulkedit'),
@@ -152,12 +143,7 @@ urlpatterns = patterns(
         name='transition',
     ),
     url(
-        r'(?P<mode>(back_office|dc))/add_attachment/(?P<parent>(asset|license|support))/$',  # noqa
-        login_required(AddAttachment.as_view()),
-        name='add_attachment'
-    ),
-    url(
-        r'add_attachment/(?P<parent>(asset|license))/$',  # noqa
+        r'add_attachment/(?P<parent>(asset|license|support))/$',
         login_required(AddAttachment.as_view()),
         name='add_attachment'
     ),
@@ -197,28 +183,22 @@ urlpatterns = patterns(
         name='count_licences',
     ),
     url(
-        r'sup/supports/$',
+        r'support/$',
         login_required(SupportList.as_view()),
         name='support_list',
     ),
     url(
-        r'sup/add_support/$',
+        r'support/add/$',
         login_required(AddSupportView.as_view()),
         name='add_support',
     ),
     url(
-        r'(?P<mode>(back_office|dc))/sup/edit_support/'
-        r'(?P<support_id>[0-9]+)$',
+        r'support/edit/(?P<support_id>[0-9]+)$',
         login_required(EditSupportView.as_view()),
         name='edit_support',
     ),
     url(
-        r'(?P<mode>(back_office|dc))/history/support/(?P<support_id>[0-9]+)/$',
-        login_required(HistorySupport.as_view()),
-        name='support_history',
-    ),
-    url(
-        r'(?P<mode>(back_office|dc))/sup/delete/$',
+        r'support/delete/$',
         login_required(DeleteSupportView.as_view()),
         name='delete_support',
     ),
@@ -228,7 +208,7 @@ urlpatterns = patterns(
         name='delete_licence',
     ),
     url(
-        r'(?P<mode>(back_office|dc|administration|other))/delete/(?P<parent>(asset|license|support))/attachment/$',  # noqa
+        r'delete/(?P<parent>(asset|license|support))/attachment/$',
         login_required(DeleteAttachment.as_view()),
         name='delete_attachment',
     ),
@@ -248,11 +228,6 @@ urlpatterns = patterns(
         name='user_view',
     ),
     url(
-        r'history/licence/(?P<licence_id>[0-9]+)/$',
-        login_required(HistoryLicence.as_view()),
-        name='licence_history',
-    ),
-    url(
         r'transition-history-file/(?P<history_id>[0-9]+)$',
         login_required(TransitionHistoryFileHandler.as_view()),
         name='transition_history_file',
@@ -260,11 +235,15 @@ urlpatterns = patterns(
     url(
         r'reports/$',
         login_required(ReportsList.as_view()),
-        name='reports',
+        name='assets_reports',
     ),
     url(
         r'reports/(?P<mode>\S+)/(?P<slug>\S+)$',
         login_required(ReportDetail.as_view()),
         name='report_detail',
+    ),
+    url(
+        r'^history/',
+        include('ralph_assets.history.urls', app_name='history'),
     ),
 )

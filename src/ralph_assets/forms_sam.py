@@ -13,6 +13,7 @@ from ajax_select.fields import (
 )
 from collections import OrderedDict
 from django import forms
+from django.forms import ChoiceField
 from django.utils.translation import ugettext_lazy as _
 from django_search_forms.form import SearchForm
 from django_search_forms.fields import (
@@ -29,7 +30,13 @@ from django_search_forms.fields_ajax import (
 
 from ralph.ui.widgets import DateWidget
 from ralph_assets import models_sam
-from ralph_assets.forms import LOOKUPS, MultilineField, MultivalFieldForm
+from ralph_assets.forms import (
+    LOOKUPS,
+    MultilineField,
+    MultivalFieldForm,
+    ReadOnlyFieldsMixin,
+)
+from ralph_assets.models import AssetType
 from ralph_assets.models_assets import MODE2ASSET_TYPE
 from ralph_assets.models_sam import AssetOwner, LicenceType
 
@@ -92,6 +99,14 @@ class LicenceForm(forms.ModelForm):
             'valid_thru': DateWidget,
         }
 
+    asset_type = ChoiceField(
+        required=True,
+        choices=[('', '----')] + [
+            (choice.id, choice.name) for choice in [
+                AssetType.back_office, AssetType.data_center
+            ]
+        ],
+    )
     parent = AutoCompleteSelectField(
         ('ralph_assets.models', 'LicenceLookup'),
         required=False,
@@ -148,9 +163,8 @@ class LicenceForm(forms.ModelForm):
 class AddLicenceForm(LicenceForm, MultivalFieldForm):
     """Class for adding a licence or multiple licences."""
 
-    def __init__(self, *args, **kwargs):
-        super(AddLicenceForm, self).__init__(*args, **kwargs)
-        self.multival_fields = ['sn', 'niw']
+    multival_fields = ['sn', 'niw']
+    allow_duplicates = ['sn']
 
     class Meta(LicenceForm.Meta):
         model = models_sam.Licence
@@ -197,16 +211,32 @@ class AddLicenceForm(LicenceForm, MultivalFieldForm):
         return data
 
 
-class EditLicenceForm(LicenceForm):
+class EditLicenceForm(ReadOnlyFieldsMixin, LicenceForm):
     """Form for licence edit."""
+
+    readonly_fields = ('created',)
 
     class Meta(LicenceForm.Meta):
         model = models_sam.Licence
+        fieldset = OrderedDict([
+            ('Basic info', [
+                'asset_type', 'manufacturer', 'licence_type',
+                'software_category', 'parent', 'niw', 'sn', 'property_of',
+                'valid_thru', 'assets', 'users', 'remarks', 'service_name',
+                'license_details', 'created',
+            ]),
+            ('Financial info', [
+                'order_no', 'invoice_date', 'invoice_no', 'price', 'provider',
+                'number_bought', 'accounting_id', 'budget_info',
+            ]),
+        ])
+
         fields = (
             'accounting_id',
             'asset_type',
             'assets',
             'budget_info',
+            'created',
             'invoice_date',
             'invoice_no',
             'licence_type',
@@ -290,13 +320,18 @@ class BulkEditLicenceForm(LicenceForm):
             'service_name',
             'sn',
             'remarks',
+            'budget_info',
+            'assets',
+            'users',
         )
+    sn = forms.CharField(label=_('Licence key'))
+    remarks = forms.CharField(label=_('Additional remarks'), required=False)
 
     def __init__(self, *args, **kwargs):
         super(BulkEditLicenceForm, self).__init__(None, *args, **kwargs)
-        classes = "span12 fillable"
-        banned_fillables = set(['sn', 'niw', 'barcode', 'imei'])
+        banned_fillables = set(['niw', 'assets', 'users'])
         for field_name in self.fields:
+            classes = "span12 fillable"
             if field_name in banned_fillables:
                 classes = "span12"
             self.fields[field_name].widget.attrs.update({'class': classes})

@@ -35,15 +35,23 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.urlresolvers import reverse
 from django.db import models
-from django.db.models.signals import post_save, post_delete
+from django.db.models.signals import post_save, post_delete, pre_save
 from django.db.utils import DatabaseError
 from django.dispatch import receiver
 from django.template import Context, Template
 from django.utils.translation import ugettext_lazy as _
 
 from ralph.business.models import Venture
-from ralph.discovery.models_device import Device, DeviceType
+from ralph.discovery.models_device import (
+    Device,
+    DeviceEnvironment,
+    DeviceType,
+    ServiceCatalog,
+)
 from ralph.discovery.models_util import SavingUser
+from ralph_assets.history.models import HistoryMixin
+from ralph_assets.history.utils import field_changes
+from ralph.util.models import SyncFieldMixin
 from ralph_assets.models_util import WithForm
 from ralph_assets.utils import iso2_to_iso3
 
@@ -397,12 +405,14 @@ class AssetLastHostname(models.Model):
 
 
 class Asset(
+    HistoryMixin,
     LicenseAndAsset,
     TimeTrackable,
     EditorTrackable,
     SavingUser,
     SoftDeletable,
     WithForm,
+    SyncFieldMixin,
 ):
     '''
     Asset model contain fields with basic information about single asset
@@ -540,6 +550,18 @@ class Asset(
         help_text=HOSTNAME_FIELD_HELP_TIP,
     )
     required_support = models.BooleanField(default=False)
+    service = models.ForeignKey(
+        ServiceCatalog,
+        default=None,
+        null=True,
+        on_delete=models.PROTECT,
+    )
+    device_environment = models.ForeignKey(
+        DeviceEnvironment,
+        default=None,
+        null=True,
+        on_delete=models.PROTECT,
+    )
 
     def __unicode__(self):
         return "{} - {} - {}".format(self.model, self.sn, self.barcode)
@@ -554,13 +576,9 @@ class Asset(
 
     @property
     def venture(self):
-        if not self.device_info or not self.device_info.ralph_device_id:
-            return None
         try:
-            return Device.objects.get(
-                pk=self.device_info.ralph_device_id,
-            ).venture
-        except Device.DoesNotExist:
+            return self.get_ralph_device().venture
+        except AttributeError:
             return None
 
     @property
@@ -622,8 +640,68 @@ class Asset(
                 if different_country:
                     self.generate_hostname(commit, template_vars)
 
-    def save(self, commit=True, *args, **kwargs):
+    def get_ralph_device(self):
+        if not self.device_info or not self.device_info.ralph_device_id:
+            return None
+        try:
+            return Device.objects.get(
+                pk=self.device_info.ralph_device_id,
+            )
+        except Device.DoesNotExist:
+            return None
+
+    def get_synced_objs_and_fields(self):
+        # Implementation of the abstract method from SyncFieldMixin.
+        fields = ['service', 'device_environment']
+        obj = self.get_ralph_device()
+        return [(obj, fields)] if obj else []
+
+    @property
+    def exists(self):
+        """Check if object is a new db record"""
+        return self.pk is None
+
+    def handle_device_linkage(self, force_unlink):
+        """When try to match it with an existing device or create a dummy
+        (stock) device and then match with it instead.
+        Note: it does not apply to assets created with 'add part' button.
+
+        Cases:
+        when adding asset:
+            no barcode -> add asset + create dummy device
+            set barcode from unlinked device -> add asset + link device
+            set barcode from linked device -> error
+            set barcode from linked device + force unlink -> add + relink
+
+        when editing asset:
+            do nothing
+        """
+        try:
+            ralph_device_id = self.device_info.ralph_device_id
+        except AttributeError:
+            # asset created with 'add part'
+            pass
+        else:
+            if self.exists:
+                if not ralph_device_id:
+                    device = self.find_device_to_link()
+                    if device:
+                        if force_unlink:
+                            asset = device.get_asset()
+                            asset.device_info.ralph_device_id = None
+                            asset.device_info.save()
+                        self.device_info.ralph_device_id = device.id
+                        self.device_info.save()
+                    else:
+                        self.create_stock_device()
+
+    def save(
+        self, commit=True, sync=True, force_unlink=False, *args, **kwargs
+    ):
         _replace_empty_with_none(self, ['source', 'hostname'])
+        if sync:
+            SyncFieldMixin.save(self, *args, **kwargs)
+        self.handle_device_linkage(force_unlink)
         instance = super(Asset, self).save(commit=commit, *args, **kwargs)
         return instance
 
@@ -635,8 +713,21 @@ class Asset(
         else:
             raise UserWarning('Unknown asset data type!')
 
+    @property
+    def type_is_data_center(self):
+        return self.type == AssetType.data_center
+
+    def find_device_to_link(self):
+        if not self.type_is_data_center or not self.barcode:
+            return False
+        try:
+            device = Device.objects.get(barcode=self.barcode)
+        except Device.DoesNotExist:
+            device = False
+        return device
+
     def create_stock_device(self):
-        if not self.type == AssetType.data_center:
+        if not self.type_is_data_center:
             return
         if not self.device_info.ralph_device_id:
             try:
@@ -749,23 +840,9 @@ class Asset(
         if commit:
             self.save()
 
-
-@receiver(post_save, sender=Asset, dispatch_uid='ralph.create_asset')
-def create_asset_post_save(sender, instance, created, **kwargs):
-    """When a new DC asset without a device linked to it is created, try to
-    match it with an existing device or create a dummy (stock) device and
-    match with it instead. Note: it does not apply to assets created with
-    'add part' button.
-    """
-    if created:
-        try:
-            ralph_device_id = instance.device_info.ralph_device_id
-        except AttributeError:
-            # asset created with 'add part'
-            pass
-        else:
-            if not ralph_device_id:
-                instance.create_stock_device()
+    @property
+    def asset_type(self):
+        return self.type
 
 
 class DeviceInfo(TimeTrackable, SavingUser, SoftDeletable):
@@ -896,3 +973,15 @@ class PartInfo(TimeTrackable, SavingUser, SoftDeletable):
 class ReportOdtSource(Named, SavingUser, TimeTrackable):
     slug = models.SlugField(max_length=100, unique=True, blank=False)
     template = models.FileField(upload_to=_get_file_path, blank=False)
+
+
+@receiver(pre_save, sender=Asset, dispatch_uid='ralph_assets.views.device')
+def device_hostname_assigning(sender, instance, raw, using, **kwargs):
+    """A hook for assigning ``hostname`` value when an asset is edited."""
+    if getattr(settings, 'ASSETS_AUTO_ASSIGN_HOSTNAME', None):
+        for field, orig, new in field_changes(instance):
+            status_desc = AssetStatus.in_progress.desc
+            if all((
+                field == 'status', orig != status_desc, new == status_desc
+            )):
+                instance._try_assign_hostname(commit=False)

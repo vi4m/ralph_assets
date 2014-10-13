@@ -1,6 +1,6 @@
 {% extends 'assets/base.html' %}
-{% load bob %}
-{% load i18n %}
+{% load bob i18n history_tags %}
+
 {% block content %}
 <div class="row-fluid">
     <h3>{% block form_title %}{{caption}}{% endblock %}</h3>
@@ -19,11 +19,7 @@
     <div class="span6">
       {% include 'assets/attachment_table.html' with attachment_parent=licence parent_name='license' %}
       {% if licence %}
-        <h6>
-          <a href="{% url licence_history licence_id=licence.id %}">
-            {% trans "Licence history"%}
-          </a>
-        </h6>
+        {% short_history licence %}
         <h6>{% trans "Assigned users" %}</h6>
         <table class="table table-bordered">
           <thead>
@@ -54,5 +50,5 @@
     </div>
   </div>
 </form>
-{% include 'assets/attachment_deletion.html' with attachment_parent=licence mode=mode parent_name='license'%}
+{% include 'assets/attachment_deletion.html' with attachment_parent=licence parent_name='license'%}
 {% endblock %}

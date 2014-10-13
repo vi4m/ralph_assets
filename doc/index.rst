@@ -19,5 +19,6 @@ every device, for what, and how much it costs.
    installation
    configuration
    transitions
+   history
    changes
 

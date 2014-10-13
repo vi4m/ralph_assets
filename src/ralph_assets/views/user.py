@@ -32,7 +32,7 @@ class UserDetails(AssetsBase):
     """Detail user profile, relations with assets and licences"""
     template_name = 'assets/user_details.html'
     sidebar_selected = None
-    mainmenu_selected = 'users'
+    submodule_name = 'users'
 
     def get(self, request, username, *args, **kwargs):
         try:
@@ -50,7 +50,6 @@ class UserDetails(AssetsBase):
     def get_context_data(self, **kwargs):
         ret = super(UserDetails, self).get_context_data(**kwargs)
         ret.update({
-            'section': 'user list',
             'user_object': self.user,
             'assigned_assets': self.assigned_assets,
             'assigned_licences': self.assigned_licences,
@@ -65,7 +64,7 @@ class UserList(Report, AssetsBase, DataTableMixin):
     template_name = 'assets/user_list.html'
     csv_file_name = 'users'
     sort_variable_name = 'sort'
-    mainmenu_selected = 'users'
+    submodule_name = 'users'
     _ = DataTableColumnAssets
     columns = [
         _(
@@ -95,7 +94,6 @@ class UserList(Report, AssetsBase, DataTableMixin):
             'sort': self.sort,
             'columns': self.columns,
             'form': SearchUserForm(self.request.GET),
-            'section': 'user list',
         })
         return ret
 
@@ -121,7 +119,7 @@ class EditUser(AssetsBase):
     template_name = 'assets/user_edit.html'
     caption = _('Edit user relations')
     message = _('Licence changed')
-    mainmenu_selected = 'users'
+    submodule_name = 'users'
 
     def prepare(self, username):
         self.user = User.objects.get(username=username)
@@ -138,7 +136,6 @@ class EditUser(AssetsBase):
             'form_id': 'user_relation_form',
             'caption': self.caption,
             'edited_user': self.user,
-            'section': 'user list',
         })
         return ret
 

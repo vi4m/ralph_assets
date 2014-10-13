@@ -1,0 +1,8 @@
+<div class="btn-group pull-right">
+    <a href="{% url dc %}" class="btn{% if mode == 'dc'%} active{% endif %}">
+        <i class="fugue-icon fugue-building"></i> Data center
+    </a>
+    <a href="{% url bo %}" class="btn{% if mode == 'back_office'%} active{% endif %}">
+        <i class="fugue-icon fugue-printer"></i> Back office
+    </a>
+</div>

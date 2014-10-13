@@ -8,14 +8,17 @@ from __future__ import unicode_literals
 import logging
 import uuid
 
+from bob import csvutil
 from bob.menu import MenuItem, MenuHeader
 from django.core.urlresolvers import reverse
 from django.db.models import Count
 from django.http import Http404
 from django.utils.translation import ugettext_lazy as _
 
+from ralph.util.reports import Report
 from ralph.discovery.models_device import Device
 from ralph_assets.views.base import AssetsBase
+from ralph_assets.others import get_assets_rows, get_licences_rows
 from ralph_assets.models_assets import (
     Asset,
     AssetModel,
@@ -125,6 +128,7 @@ class BaseReport(object):
     with_modes = True
     with_counter = True
     links = False
+    template_name = None
 
     def __init__(self):
         self.report = ReportContainer()
@@ -137,6 +141,9 @@ class BaseReport(object):
 
     def prepare(self, mode):
         raise NotImplemented()
+
+    def is_async(self, request):
+        return False
 
 
 class CategoryModelReport(BaseReport):
@@ -335,14 +342,55 @@ class LinkedDevicesReport(BaseReport):
         }
 
 
+class BaseRelationsReport(BaseReport):
+    template_name = 'assets/report_relations.html'
+    with_modes = True
+    links = False
+
+    def prepare(self, *args, **kwargs):
+        pass
+
+    def is_async(self, request):
+        self.export = request.GET.get('csv')
+        return self.export == 'on'
+
+    def get_response(self, request, result):
+        return csvutil.make_csv_response(data=result, filename=self.filename)
+
+
+class AssetRelationsReport(BaseRelationsReport):
+    slug = 'asset-relations'
+    name = _('Asset - relations')
+    filename = 'asset_relations.csv'
+
+    def get_result(self, *args, **kwargs):
+        filter_type = kwargs.get('mode')
+        return list(get_assets_rows(filter_type=filter_type))
+
+
+class LicenceRelationsReport(BaseRelationsReport):
+    slug = 'licence-relations'
+    name = _('Licence - relations')
+    filename = 'licence_relations.csv'
+
+    def get_result(self, *args, **kwargs):
+        filter_type = kwargs.get('mode')
+        data = []
+        for row in get_licences_rows(filter_type, True):
+            data.append([item.decode('utf-8') for item in row])
+        return data
+
+
 class ReportViewBase(AssetsBase):
-    mainmenu_selected = 'reports'
+    submodule_name = 'assets_reports'
     reports = [
         CategoryModelReport,
         CategoryModelStatusReport,
         ManufacturerCategoryModelReport,
         StatusModelReport,
         LinkedDevicesReport,
+        AssetRelationsReport,
+        LicenceRelationsReport,
     ]
     modes = [
         {
@@ -381,14 +429,31 @@ class ReportsList(ReportViewBase):
     template_name = 'assets/report_list.html'
 
 
-class ReportDetail(ReportViewBase):
+class ReportDetail(Report, ReportViewBase):
     template_name = 'assets/report_detail.html'
+
+    @property
+    def active_sidebar_item(self):
+        return self.report.name
 
     def get_report(self, slug):
         for report in self.reports:
             if report.slug == slug:
                 return report()
         return None
+
+    def get_template_names(self, *args, **kwargs):
+        return [self.report.template_name or self.template_name]
+
+    def is_async(self, request, *args, **kwargs):
+        return self.report.is_async(request)
+
+    def get_result(self, request, *args, **kwargs):
+        report = self.get_report(kwargs.get('slug'))
+        return report.get_result(*args, **kwargs)
+
+    def get_response(self, request, result):
+        return self.report.get_response(request, result)
 
     def dispatch(self, request, *args, **kwargs):
         self.slug = kwargs.pop('slug')

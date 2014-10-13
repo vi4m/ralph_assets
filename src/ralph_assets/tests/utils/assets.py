@@ -22,6 +22,11 @@ from uuid import uuid1
 
 from django.template.defaultfilters import slugify
 
+from ralph.cmdb.tests.utils import (
+    CIRelationFactory,
+    DeviceEnvironmentFactory,
+    ServiceCatalogFactory,
+)
 from ralph_assets import models_assets
 from ralph_assets.models_assets import (
     Asset,
@@ -44,6 +49,14 @@ from ralph_assets.tests.utils import UserFactory
 
 category_code_set = 'ABCDEFGHIJKLMNOPRSTUVWXYZ1234567890'
 category_code_combinations = itertools.product(category_code_set, repeat=2)
+
+
+def generate_sn():
+    return str(uuid1())
+
+
+def generate_barcode():
+    return str(uuid1())
 
 
 def generate_imei(n):
@@ -177,16 +190,21 @@ class AssetFactory(DjangoModelFactory):
 
     @lazy_attribute
     def sn(self):
-        return str(uuid1())
+        return generate_sn()
 
 
 class BaseAssetFactory(DjangoModelFactory):
     FACTORY_FOR = Asset
 
     budget_info = SubFactory(BudgetInfoFactory)
+    created = fuzzy.FuzzyNaiveDateTime(
+        datetime.datetime(2008, 1, 1),
+        force_microsecond=0,
+    )
     delivery_date = fuzzy.FuzzyDate(datetime.date(2008, 1, 1))
     deprecation_end_date = fuzzy.FuzzyDate(datetime.date(2008, 1, 1))
     deprecation_rate = fuzzy.FuzzyInteger(0, 100)
+    device_environment = SubFactory(DeviceEnvironmentFactory)
     invoice_date = fuzzy.FuzzyDate(datetime.date(2008, 1, 1))
     invoice_no = Sequence(lambda n: 'Invoice no #{}'.format(n))
     location = Sequence(lambda n: 'location #{}'.format(n))
@@ -200,6 +218,7 @@ class BaseAssetFactory(DjangoModelFactory):
     provider_order_date = fuzzy.FuzzyDate(datetime.date(2008, 1, 1))
     remarks = Sequence(lambda n: 'Remarks #{}'.format(n))
     request_date = fuzzy.FuzzyDate(datetime.date(2008, 1, 1))
+    service = SubFactory(ServiceCatalogFactory)
     service_name = SubFactory(ServiceFactory)
     # sn exists below, as a lazy_attribute
     source = AssetSource.shipment
@@ -210,11 +229,24 @@ class BaseAssetFactory(DjangoModelFactory):
 
     @lazy_attribute
     def barcode(self):
-        return str(uuid1())
+        return generate_barcode()
 
     @lazy_attribute
     def sn(self):
-        return str(uuid1())
+        return generate_sn()
+
+    @factory.post_generation
+    def device_environment(self, create, extracted, **kwargs):
+        if not create:
+            # Simple build, do nothing.
+            return
+
+        if extracted:
+            self.device_environment = extracted
+        else:
+            if self.service:
+                ci_relation = CIRelationFactory(parent=self.service)
+                self.device_environment = ci_relation.child
 
     @factory.post_generation
     def supports(self, create, extracted, **kwargs):

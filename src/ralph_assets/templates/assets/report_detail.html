@@ -5,12 +5,15 @@
 <h1>{{ report.name }}</h1>
   {% spaceless %}
   <div class="report">
+    {% block collapse %}
     <div class="pagination">
       <ul>
         <li><a class="expand-all" href="#">{% trans 'Expand all' %}</a></li>
         <li><a class="collapse-all" href="#">{% trans 'Collapse all' %}</a></li>
       </ul>
     </div>
+    {% endblock %}
+    {% block modes %}
     {% if report.with_modes %}
       <div class="pagination">
         <ul>
@@ -20,6 +23,8 @@
         </ul>
       </div>
     {% endif %}
+    {% endblock %}
+    {% block report_content %}
     {% cache 3600 report cache_key %}
       <p>{% trans 'Last update:' %} {% now "SHORT_DATETIME_FORMAT" %}</p>
       <table class="table table-striped">
@@ -41,6 +46,7 @@
         </tbody>
       </table>
     {% endcache %}
+    {% endblock %}
   </div>
   {% endspaceless %}
 {% endblock %}

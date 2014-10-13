@@ -55,6 +55,7 @@ from ralph_assets.models import (
     Service,
 )
 from ralph_assets import models_assets
+from ralph.discovery import models_device
 from ralph.ui.widgets import DateWidget, ReadOnlyWidget, SimpleReadOnlyWidget
 
 
@@ -71,6 +72,7 @@ asset_fieldset = lambda: OrderedDict([
         'order_no', 'invoice_date', 'invoice_no', 'price', 'provider',
         'deprecation_rate', 'source', 'request_date', 'provider_order_date',
         'delivery_date', 'deprecation_end_date', 'budget_info',
+        'force_deprecation',
     ]),
     ('User Info', [
         'user', 'owner', 'employee_id', 'company', 'department', 'manager',
@@ -82,7 +84,8 @@ asset_search_back_office_fieldsets = lambda: OrderedDict([
     ('Basic Info', {
         'noncollapsed': [
             'barcode', 'status', 'imei', 'sn', 'model', 'hostname',
-            'required_support', 'support_assigned',
+            'required_support', 'support_assigned',  'service',
+            'device_environment',
         ],
         'collapsed': [
             'warehouse', 'task_url', 'category', 'loan_end_date_from',
@@ -115,7 +118,8 @@ asset_search_dc_fieldsets = lambda: OrderedDict([
     ('Basic Info', {
         'noncollapsed': [
             'barcode', 'sn', 'model', 'manufacturer', 'warehouse',
-            'required_support', 'support_assigned',
+            'required_support', 'support_assigned', 'service',
+            'device_environment',
         ],
         'collapsed': [
             'status', 'task_url', 'category', 'loan_end_date_from',
@@ -147,27 +151,69 @@ asset_search_dc_fieldsets = lambda: OrderedDict([
 LOOKUPS = {
     'asset': ('ralph_assets.models', 'DeviceLookup'),
     'asset_all': ('ralph_assets.models', 'AssetLookup'),
-    'linked_device': ('ralph_assets.models', 'LinkedDeviceNameLookup'),
     'asset_bodevice': ('ralph_assets.models', 'BODeviceLookup'),
     'asset_bomodel': ('ralph_assets.models', 'BOAssetModelLookup'),
     'asset_dcdevice': ('ralph_assets.models', 'DCDeviceLookup'),
     'asset_dcmodel': ('ralph_assets.models', 'DCAssetModelLookup'),
-    'manufacturer': ('ralph_assets.models', 'ManufacturerLookup'),
     'asset_model': ('ralph_assets.models', 'AssetModelLookup'),
     'asset_user': ('ralph_assets.models', 'UserLookup'),
     'asset_warehouse': ('ralph_assets.models', 'WarehouseLookup'),
     'budget_info': ('ralph_assets.models_sam', 'BudgetInfoLookup'),
+    'device_environment': ('ralph.ui.channels', 'DeviceEnvrionment'),
     'free_licences': ('ralph_assets.models', 'FreeLicenceLookup'),
     'licence': ('ralph_assets.models', 'LicenceLookup'),
+    'linked_device': ('ralph_assets.models', 'LinkedDeviceNameLookup'),
+    'manufacturer': ('ralph_assets.models', 'ManufacturerLookup'),
     'ralph_device': ('ralph_assets.models', 'RalphDeviceLookup'),
+    'service': ('ralph.ui.channels', 'ServiceCatalogLookup'),
     'softwarecategory': ('ralph_assets.models', 'SoftwareCategoryLookup'),
     'support': ('ralph_assets.models', 'SupportLookup'),
 }
 
 
+class ReadOnlyFieldsMixin(object):
+    readonly_fields = ()
+
+    def __init__(self, *args, **kwargs):
+        super(ReadOnlyFieldsMixin, self).__init__(*args, **kwargs)
+        for field in (
+            field for name, field in self.fields.iteritems()
+            if name in self.readonly_fields
+        ):
+            field.widget.attrs['disabled'] = 'true'
+            field.required = False
+
+    def clean(self):
+        cleaned_data = super(ReadOnlyFieldsMixin, self).clean()
+        for field in self.readonly_fields:
+            cleaned_data[field] = getattr(self.instance, field)
+        return cleaned_data
+
+
 class MultivalFieldForm(ModelForm):
     """A form that has several multiline fields that need to have the
-    same number of entries."""
+    same number of entries.
+
+    :param multival_fields: list of form fields which require the same item
+    count
+    :param allow_duplicates: list of fields, if particular multivalue field
+    allows duplicates, append it to this list
+    """
+
+    multival_fields = []
+    allow_duplicates = []
+
+    def __init__(self, *args, **kwargs):
+        bad_fields = set(self.allow_duplicates).difference(
+            set(self.multival_fields)
+        )
+        if len(bad_fields):
+            raise Exception(
+                "This field(s) is(are) not multival_fields: {}".format(
+                    bad_fields,
+                )
+            )
+        super(MultivalFieldForm, self).__init__(*args, **kwargs)
 
     def different_multival_counters(self, cleaned_data):
         """Adds a validation error if if form's multivalues fields have
@@ -184,12 +230,14 @@ class MultivalFieldForm(ModelForm):
                     )
                     self.errors.setdefault(field, []).append(msg)
 
-    def unique_multival_fields(self, data):
+    def unique_multival_fields(self, request_data):
         for field_name in self.multival_fields:
+            if field_name in self.allow_duplicates:
+                continue
             try:
                 self[field_name].field.check_field_uniqueness(
                     self._meta.model,
-                    data.get(field_name, [])
+                    request_data.get(field_name, [])
                 )
             except ValidationError as err:
                 self._errors.setdefault(field_name, [])
@@ -407,8 +455,6 @@ class BulkEditAssetForm(DependencyForm, ModelForm):
     def _update_field_css_class(self, field_name):
         if field_name not in self.banned_fillables:
             classes = "span12 fillable"
-        elif field_name == 'support_void_reporting':
-            classes = ""
         else:
             classes = "span12"
         self.fields[field_name].widget.attrs.update({'class': classes})
@@ -590,7 +636,7 @@ class DependencyAssetForm(DependencyForm):
     """
     Containts common solution for adding asset and editing asset section.
     Launches a plugin which depending on the category field gives the
-    opportunity to complete fields such as slots
+    opportunity to complete fields
     """
 
     def __init__(self, *args, **kwargs):
@@ -610,28 +656,12 @@ class DependencyAssetForm(DependencyForm):
     def dependencies(self):
         """
         On the basis of data from the database gives the opportunity
-        to complete fields such as slots
+        to complete fields
 
         :returns object: Logic to test if category is in selected categories
         :rtype object:
         """
         deps = [
-            Dependency(
-                'slots',
-                'category',
-                dependency_conditions.MemberOf(
-                    AssetCategory.objects.filter(is_blade=True).all()
-                ),
-                SHOW,
-            ),
-            Dependency(
-                'slots',
-                'category',
-                dependency_conditions.MemberOf(
-                    AssetCategory.objects.filter(is_blade=True).all()
-                ),
-                REQUIRE,
-            ),
             Dependency(
                 'imei',
                 'category',
@@ -731,10 +761,25 @@ class DependencyAssetForm(DependencyForm):
             yield dep
 
 
-class AddEditAssetMixin(object):
-    """
-    Common code for asset's both type forms (Add & Edit).
-    """
+class BaseAssetForm(ModelForm):
+    class Meta:
+        model = Asset
+
+    def clean(self):
+        cleaned_data = super(BaseAssetForm, self).clean()
+        env = cleaned_data.get("device_environment")
+        service = cleaned_data.get("service")
+        if env and service:
+            service_envs = service.get_environments()
+            if env not in service_envs:
+                msg = _(
+                    "This value is not valid anymore for selected "
+                    "'service catalog'. Valid options: {}".format(
+                        ', '.join([_env.name for _env in service_envs])
+                    )
+                )
+                self._errors["device_environment"] = msg
+        return cleaned_data
 
     def customize_fields(self):
         """
@@ -757,7 +802,7 @@ class AddEditAssetMixin(object):
                 (c.id, c.desc) for c in AssetType.BO.choices]
 
 
-class BaseAddAssetForm(DependencyAssetForm, AddEditAssetMixin, ModelForm):
+class BaseAddAssetForm(DependencyAssetForm, BaseAssetForm):
     '''
         Base class to display form used to add new asset
     '''
@@ -794,12 +839,8 @@ class BaseAddAssetForm(DependencyAssetForm, AddEditAssetMixin, ModelForm):
             'request_date',
             'required_support',
             'service_name',
-            'slots',
             'source',
             'status',
-            'support_period',
-            'support_type',
-            'support_void_reporting',
             'task_url',
             'type',
             'user',
@@ -814,7 +855,6 @@ class BaseAddAssetForm(DependencyAssetForm, AddEditAssetMixin, ModelForm):
             'provider_order_date': DateWidget(),
             'remarks': Textarea(attrs={'rows': 3}),
             'request_date': DateWidget(),
-            'support_type': Textarea(attrs={'rows': 5}),
         }
     model = AutoCompleteSelectField(
         LOOKUPS['asset_model'],
@@ -924,7 +964,7 @@ class BaseAddAssetForm(DependencyAssetForm, AddEditAssetMixin, ModelForm):
         return self.cleaned_data['imei'] or None
 
 
-class BaseEditAssetForm(DependencyAssetForm, AddEditAssetMixin, ModelForm):
+class BaseEditAssetForm(DependencyAssetForm, BaseAssetForm):
     '''
         Base class to display form used to edit asset
     '''
@@ -963,14 +1003,9 @@ class BaseEditAssetForm(DependencyAssetForm, AddEditAssetMixin, ModelForm):
             'request_date',
             'required_support',
             'service_name',
-            'slots',
-            'sn',
             'sn',
             'source',
             'status',
-            'support_period',
-            'support_type',
-            'support_void_reporting',
             'task_url',
             'type',
             'user',
@@ -987,7 +1022,6 @@ class BaseEditAssetForm(DependencyAssetForm, AddEditAssetMixin, ModelForm):
             'remarks': Textarea(attrs={'rows': 3}),
             'request_date': DateWidget(),
             'sn': Textarea(attrs={'rows': 1, 'readonly': '1'}),
-            'support_type': Textarea(attrs={'rows': 5}),
         }
     model = AutoCompleteSelectField(
         LOOKUPS['asset_model'],
@@ -1118,6 +1152,8 @@ class AddPartForm(BaseAddAssetForm, MultivalFieldForm):
         Add new part for device
     '''
 
+    multival_fields = ['sn']
+
     sn = MultilineField(
         db_field_path='sn', label=_('SN/SNs'), required=True,
         widget=Textarea(attrs={'rows': 25}),
@@ -1128,13 +1164,14 @@ class AddPartForm(BaseAddAssetForm, MultivalFieldForm):
         super(AddPartForm, self).__init__(*args, **kwargs)
         self.fieldsets = asset_fieldset()
         self.fieldsets['Basic Info'].remove('barcode')
-        self.multival_fields = ['sn']
 
 
 class AddDeviceForm(BaseAddAssetForm, MultivalFieldForm):
     '''
         Add new device form
     '''
+    multival_fields = ['sn', 'barcode', 'imei']
+
     sn = MultilineField(
         db_field_path='sn', label=_('SN/SNs'), required=False,
         widget=Textarea(attrs={'rows': 25}), validators=[validate_snbcs]
@@ -1149,10 +1186,6 @@ class AddDeviceForm(BaseAddAssetForm, MultivalFieldForm):
         widget=Textarea(attrs={'rows': 25}),
         validators=[validate_imeis],
     )
-
-    def __init__(self, *args, **kwargs):
-        super(AddDeviceForm, self).__init__(*args, **kwargs)
-        self.multival_fields = ['sn', 'barcode', 'imei']
 
     def clean(self):
         """
@@ -1172,25 +1205,59 @@ class AddDeviceForm(BaseAddAssetForm, MultivalFieldForm):
 
 class BackOfficeAddDeviceForm(AddDeviceForm):
 
+    class Meta(BaseAddAssetForm.Meta):
+        fields = BaseAddAssetForm.Meta.fields + (
+            'device_environment', 'service',
+        )
+
+    device_environment = ModelChoiceField(
+        required=False,
+        queryset=models_device.DeviceEnvironment.objects.all(),
+        label=_('Environment'),
+    )
     purpose = ChoiceField(
         choices=[('', '----')] + models_assets.AssetPurpose(),
         label=_('Purpose'),
         required=False,
     )
+    service = AutoCompleteSelectField(
+        LOOKUPS['service'],
+        required=False,
+        label=_('Service catalog'),
+    )
 
     def __init__(self, *args, **kwargs):
         super(BackOfficeAddDeviceForm, self).__init__(*args, **kwargs)
-        self.fields.keyOrder = move_after(
-            self.fields.keyOrder, 'warehouse', 'purpose'
-        )
+        for after, field in (
+            ('property_of', 'service'),
+            ('service', 'device_environment'),
+        ):
+            self.fieldsets['Basic Info'].append(field)
+            move_after(self.fieldsets['Basic Info'], after, field)
 
 
 class DataCenterAddDeviceForm(AddDeviceForm):
 
+    class Meta(BaseAddAssetForm.Meta):
+        fields = BaseAddAssetForm.Meta.fields + (
+            'device_environment', 'service',
+        )
+    device_environment = ModelChoiceField(
+        required=True,
+        queryset=models_device.DeviceEnvironment.objects.all(),
+        label=_('Environment'),
+    )
+    service = AutoCompleteSelectField(
+        LOOKUPS['service'],
+        required=True,
+        label=_('Service catalog'),
+    )
+
     def __init__(self, *args, **kwargs):
         super(DataCenterAddDeviceForm, self).__init__(*args, **kwargs)
         for after, field in (
-            ('status', 'slots'),
+            ('property_of', 'service'),
+            ('service', 'device_environment'),
         ):
             self.fieldsets['Basic Info'].append(field)
             move_after(self.fieldsets['Basic Info'], after, field)
@@ -1246,13 +1313,21 @@ class EditDeviceForm(BaseEditAssetForm):
         return cleaned_data
 
 
-class BackOfficeEditDeviceForm(EditDeviceForm):
+class BackOfficeEditDeviceForm(ReadOnlyFieldsMixin, EditDeviceForm):
+
+    readonly_fields = ('created',)
 
     class Meta(BaseEditAssetForm.Meta):
         fields = BaseEditAssetForm.Meta.fields + (
-            'hostname',
+            'device_environment', 'hostname', 'service', 'created',
+            'hostname', 'created',
         )
 
+    device_environment = ModelChoiceField(
+        required=False,
+        queryset=models_device.DeviceEnvironment.objects.all(),
+        label=_('Environment'),
+    )
     hostname = CharField(
         required=False, widget=SimpleReadOnlyWidget(),
     )
@@ -1261,6 +1336,11 @@ class BackOfficeEditDeviceForm(EditDeviceForm):
         label=_('Purpose'),
         required=False,
     )
+    service = AutoCompleteSelectField(
+        LOOKUPS['service'],
+        required=False,
+        label=_('Service catalog'),
+    )
 
     def __init__(self, *args, **kwargs):
         super(BackOfficeEditDeviceForm, self).__init__(*args, **kwargs)
@@ -1268,6 +1348,9 @@ class BackOfficeEditDeviceForm(EditDeviceForm):
             ('sn', 'imei'),
             ('loan_end_date', 'purpose'),
             ('property_of', 'hostname'),
+            ('hostname', 'service'),
+            ('service', 'device_environment'),
+            ('hostname', 'created'),
         ):
             self.fieldsets['Basic Info'].append(field)
             move_after(self.fieldsets['Basic Info'], after, field)
@@ -1279,10 +1362,26 @@ class BackOfficeEditDeviceForm(EditDeviceForm):
 
 class DataCenterEditDeviceForm(EditDeviceForm):
 
+    class Meta(BaseEditAssetForm.Meta):
+        fields = BaseEditAssetForm.Meta.fields + (
+            'device_environment', 'service',
+        )
+    device_environment = ModelChoiceField(
+        required=True,
+        queryset=models_device.DeviceEnvironment.objects.all(),
+        label=_('Environment'),
+    )
+    service = AutoCompleteSelectField(
+        LOOKUPS['service'],
+        required=True,
+        label=_('Service catalog'),
+    )
+
     def __init__(self, *args, **kwargs):
         super(DataCenterEditDeviceForm, self).__init__(*args, **kwargs)
         for after, field in (
-            ('status', 'slots'),
+            ('property_of', 'service'),
+            ('service', 'device_environment'),
         ):
             self.fieldsets['Basic Info'].append(field)
             move_after(self.fieldsets['Basic Info'], after, field)
@@ -1496,6 +1595,16 @@ class SearchAssetForm(Form):
         choices=[('', '----'), ('any', 'any'), ('none', 'none')],
         label=_('Assigned supports'),
     )
+    service = AutoCompleteField(
+        LOOKUPS['service'],
+        label=_('Service catalog'),
+        required=False,
+    )
+    device_environment = AutoCompleteField(
+        LOOKUPS['device_environment'],
+        label=_('Environment'),
+        required=False,
+    )
 
     def __init__(self, *args, **kwargs):
         # Ajax sources are different for DC/BO, use mode for distinguish
@@ -1562,8 +1671,7 @@ class SplitDevice(ModelForm):
         model = Asset
         fields = (
             'id', 'delete', 'model_proposed', 'model_user', 'invoice_no',
-            'order_no', 'sn', 'barcode', 'price', 'support_period',
-            'support_type', 'support_void_reporting', 'provider', 'source',
+            'order_no', 'sn', 'barcode', 'price', 'provider', 'source',
             'status', 'request_date', 'delivery_date', 'invoice_date',
             'provider_order_date', 'warehouse',
         )
@@ -1585,14 +1693,11 @@ class SplitDevice(ModelForm):
             'model_user', 'device_info', 'invoice_no', 'order_no',
             'request_date', 'delivery_date', 'invoice_date',
             'production_use_date', 'provider_order_date',
-            'provider_order_date', 'support_period', 'support_type',
-            'provider', 'source', 'status', 'warehouse',
+            'provider_order_date', 'provider', 'source', 'status', 'warehouse',
         ]
         for field_name in self.fields:
             if field_name in fillable_fields:
                 classes = "span12 fillable"
-            elif field_name == 'support_void_reporting':
-                classes = ""
             else:
                 classes = "span12"
             self.fields[field_name].widget.attrs = {'class': classes}

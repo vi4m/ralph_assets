@@ -352,8 +352,6 @@ class TestLinkedDevice(TestCase):
         self.assertEqual(asset.linked_device, core_device)
 
     def test_dc_asset_without_linked_device(self):
-        asset = DCAssetFactory()
-        # device is auto-assigned when asset is created, so force none
-        asset.device_info.ralph_device_id = None
+        asset = DCAssetFactory(device_info=None)
         asset.save()
         self.assertEqual(asset.linked_device, None)

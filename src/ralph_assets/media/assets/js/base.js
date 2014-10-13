@@ -186,6 +186,7 @@
                         data.used_by_assets + ' licences assigned to assets.' +
                     '</div>'
                 );
+                window.scrollTo(0,0);
             })
             return false;
         });
@@ -243,6 +244,14 @@
         require(['reports'], function(reports) {
             reports.setup({
                 trigger: $('.pagination').find('a').last(),
+                progressBar: '#async-progress',
+                etaEl: '#eta'
+            });
+        });
+
+        require(['reports'], function(reports) {
+            reports.setup({
+                trigger: $('[data-role="async-report"]'),
                 progressBar: '#async-progress',
                 etaEl: '#eta'
             });

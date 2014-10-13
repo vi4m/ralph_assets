@@ -8,46 +8,18 @@ from __future__ import unicode_literals
 from functools import partial
 
 from factory import (
+    lazy_attribute,
     Sequence,
     SubFactory,
-    lazy_attribute,
 )
 from factory.django import DjangoModelFactory, FileField
 
-from django.contrib.auth.models import User
 from django.test.client import Client
+from django.template.defaultfilters import slugify
 
+from ralph.ui.tests.global_utils import UserFactory
 from ralph_assets.models_assets import Attachment
-
-
-def login_as_user(user=None, password='ralph', *args, **kwargs):
-    if not user:
-        user = UserFactory(*args, **kwargs)
-        user.set_password(password)
-        user.save()
-    client = Client()
-    client.login(username=user.username, password=password)
-    return client
-
-
-class UserFactory(DjangoModelFactory):
-    """
-    User *password* is 'ralph'.
-    """
-    FACTORY_FOR = User
-
-    username = Sequence(lambda n: 'user_%d' % n)
-
-    @lazy_attribute
-    def email(self):
-        return '%s@example.com' % self.username
-
-    @classmethod
-    def _generate(cls, create, attrs):
-        user = super(UserFactory, cls)._generate(create, attrs)
-        user.set_password('ralph')
-        user.save()
-        return user
+from ralph_assets.models import ReportOdtSource
 
 
 class AttachmentFactory(DjangoModelFactory):
@@ -58,6 +30,18 @@ class AttachmentFactory(DjangoModelFactory):
         data=b'uploaded_file_content', filename='uploaded_filename.txt',
     )
     uploaded_by = SubFactory(UserFactory)
+
+
+class ReportOdtSourceFactory(DjangoModelFactory):
+    FACTORY_FOR = ReportOdtSource
+    name = Sequence(lambda n: 'Report ODT #%s' % n)
+    template = FileField(
+        data=b'uploaded_file_content', filename='uploaded_filename.txt',
+    )
+
+    @lazy_attribute
+    def slug(self):
+        return slugify(self.name)
 
 
 class AdminFactory(UserFactory):

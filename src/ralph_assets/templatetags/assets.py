@@ -54,3 +54,11 @@ def object_list_search(object_instance, field):
     else:
         raise ValueError('%s is not supported' % object_instance)
     return {'url': url, 'field': field, 'show': params}
+
+
+@register.inclusion_tag(
+    'assets/templatetags/mode_switch.html',
+    takes_context=True,
+)
+def mode_switch(context):
+    return {'mode': context['mode']}

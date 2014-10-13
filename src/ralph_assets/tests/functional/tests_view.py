@@ -8,19 +8,22 @@ from __future__ import unicode_literals
 import datetime
 import json
 import tempfile
+import unittest
 import uuid
 from decimal import Decimal
 from urllib import urlencode
 
 from dj.choices import Country
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.core.urlresolvers import reverse
-from django.test import TestCase
+from django.core.urlresolvers import resolve, reverse
+from django.test import TestCase, TransactionTestCase
 from django.test.utils import override_settings
+from ralph.discovery.tests.util import DeviceFactory
 
 from ralph_assets import models_assets
 from ralph_assets import models_support
 from ralph_assets import models_sam
+from ralph_assets.models_assets import Asset, SAVE_PRIORITY
 from ralph_assets.tests.utils import (
     AjaxClient,
     AttachmentFactory,
@@ -30,14 +33,18 @@ from ralph_assets.tests.utils import (
 from ralph_assets.tests.utils import assets as assets_utils
 from ralph_assets.tests.utils import sam as sam_utils
 from ralph_assets.tests.utils.assets import (
-    BOAssetFactory,
     AssetFactory,
     AssetModelFactory,
+    BOAssetFactory,
     DCAssetFactory,
     WarehouseFactory,
 )
 from ralph_assets.tests.unit.tests_other import TestHostnameAssigning
 from ralph_assets.tests.utils.sam import LicenceFactory
+from ralph.cmdb.tests.utils import CIRelationFactory
+from ralph.business.models import Venture
+from ralph.discovery.models_device import Device, DeviceType
+from ralph.ui.tests.global_utils import login_as_su
 from ralph_assets.tests.utils.supports import (
     BOSupportFactory,
     DCSupportFactory,
@@ -61,6 +68,7 @@ def get_asset_data():
     This can't be a just module dict, becasue these data include factories
     which are not accessible during module import causing error.
     """
+    ci_relation = CIRelationFactory()
     return {
         'asset': '',  # required if asset (instead of *part*) is edited
         'barcode': 'barcode1',
@@ -68,6 +76,7 @@ def get_asset_data():
         'delivery_date': datetime.date(2013, 1, 7),
         'deprecation_end_date': datetime.date(2013, 7, 25),
         'deprecation_rate': 77,
+        'device_environment': ci_relation.child.id,
         'invoice_date': datetime.date(2009, 2, 23),
         'invoice_no': 'Invoice no #3',
         'loan_end_date': datetime.date(2013, 12, 29),
@@ -82,6 +91,7 @@ def get_asset_data():
         'provider_order_date': datetime.date(2014, 3, 17),
         'remarks': 'Remarks #3',
         'request_date': datetime.date(2014, 6, 9),
+        'service': ci_relation.parent.id,
         'service_name': assets_utils.ServiceFactory().id,
         'source': models_assets.AssetSource.shipment.id,
         'status': models_assets.AssetStatus.new.id,
@@ -114,7 +124,7 @@ def check_fields(testcase, correct_data, object_to_check):
         testcase.assertEqual(object_value, expected, msg)
 
 
-class BaseViewsTest(ClientMixin, TestCase):
+class BaseViewsTest(ClientMixin, TransactionTestCase):
     client_class = AjaxClient
 
     def setUp(self):
@@ -127,14 +137,16 @@ class BaseViewsTest(ClientMixin, TestCase):
         for check_string in check_strings:
             self.assertContains(response, check_string)
 
-    def get_object_form_data(self, url, form_name):
+    def get_object_form_data(self, url, forms_name):
         """
         Gets data from form *form_name* inside context under *url*.
         Useful when, eg. request data for add|edit asset is needed.
         """
         response = self.client.get(url)
-        form = response.context[form_name]
-        return form.__dict__['initial']
+        form_data = {}
+        for form_name in forms_name:
+            form_data.update(response.context[form_name].__dict__['initial'])
+        return form_data
 
 
 class TestDataDisplay(ClientMixin, TestCase):
@@ -160,36 +172,52 @@ class TestDataDisplay(ClientMixin, TestCase):
         self.assertEqual(self.asset, first_table_row)
 
 
-class TestDevicesView(ClientMixin, TestCase):
+class TestDevicesView(BaseViewsTest):
     """
     Parent class for common stuff for Test(DataCenter|BackOffice)DeviceView.
     """
+
+    asset_factory = None
 
     def setUp(self):
         self.login_as_superuser()
         self._visible_add_form_fields = [
             'asset', 'barcode', 'budget_info', 'category', 'delivery_date',
-            'deprecation_end_date', 'deprecation_rate', 'invoice_date',
-            'invoice_no', 'location', 'model', 'niw', 'order_no', 'owner',
-            'price', 'property_of', 'provider', 'provider_order_date',
-            'remarks', 'request_date', 'service_name', 'sn', 'source',
-            'status', 'task_url', 'type', 'user', 'warehouse',
+            'deprecation_end_date', 'deprecation_rate', 'device_environment',
+            'invoice_date', 'invoice_no', 'location', 'model', 'niw',
+            'order_no', 'owner', 'price', 'property_of', 'provider',
+            'provider_order_date', 'remarks', 'request_date', 'service',
+            'service_name', 'sn', 'source', 'status', 'task_url', 'type',
+            'user', 'warehouse',
         ]
         self._visible_edit_form_fields = self._visible_add_form_fields[:]
         self._visible_edit_form_fields.extend([
-            'supports_text', 'licences_text',
+            'licences_text', 'supports_text',
         ])
 
-    def get_asset_form_data(self):
+    def get_asset_form_data(self, factory_data=None):
         from ralph_assets import urls
-        asset = self.asset_factory()
+        if not factory_data:
+            factory_data = {}
+        asset = self.asset_factory(**factory_data)
         url = reverse('device_edit', kwargs={
             'mode': urls.normalize_asset_mode(asset.type.name),
             'asset_id': asset.id,
         })
-        form_data = self.get_object_form_data(url, 'asset_form')
+        form_data = self.get_object_form_data(url, ['asset_form'])
+        if asset.device_info:
+            asset.device_info.delete()
+        elif asset.office_info:
+            asset.office_info.delete()
         asset.delete()
         return form_data
+
+    def add_asset_by_form(self, form_data):
+        add_asset_url = self._get_add_url(form_data['type'])
+        response = self.client.post(add_asset_url, form_data, follow=True)
+        self.assertEqual(response.status_code, 200)
+        asset_id = resolve(response.request['PATH_INFO']).kwargs['asset_id']
+        return models_assets.Asset.objects.get(pk=asset_id)
 
     def prepare_readonly_fields(self, new_asset_data, asset, readonly_fields):
         update(new_asset_data, asset, readonly_fields)
@@ -229,12 +257,7 @@ class TestDevicesView(ClientMixin, TestCase):
         })
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
-        edit_data = {}
-        asset_form = response.context['asset_form']
-        for field_name, field_value in asset_form.fields.items():
-            raw_field_value = asset_form[field_name].value()
-            field_value = str(raw_field_value) if raw_field_value else ''
-            edit_data[field_name] = field_value
+        edit_data = self.get_asset_form_data()
         edit_data.update(extra_data)
         self.assertIsNone(asset.hostname)
         url = reverse('device_edit', kwargs={
@@ -262,8 +285,14 @@ class TestDevicesView(ClientMixin, TestCase):
         })
         response = self.client.get(url)
         form = response.context['asset_form']
-        update_dict = form.__dict__['initial']
-        update_dict.update(**kwargs)
+        initial_dict = form.initial
+        update_dict = {}
+        for fieldset, fields in form.fieldsets.iteritems():
+            for field in fields:
+                val = initial_dict.get(field, None)
+                if val:
+                    update_dict[field] = val
+        update_dict.update(kwargs)
         response = self.client.post(url, update_dict, follow=True)
         return response, models_assets.Asset.objects.get(id=asset_id)
 
@@ -362,7 +391,7 @@ class TestDataCenterDevicesView(TestDevicesView, BaseViewsTest):
 
     def test_edit_device(self):
         """
-        Add device with all fields filled.
+        Edit device with all fields filled.
 
         - generate asset data d1
         - create asset a1
@@ -381,15 +410,14 @@ class TestDataCenterDevicesView(TestDevicesView, BaseViewsTest):
             'mode': self.mode,
             'asset_id': asset.id,
         })
-        response = self.client.post(url, edited_data)
-        self.assertRedirects(
-            response, url, status_code=302, target_status_code=200,
-        )
+        response = self.client.post(url, edited_data, follow=True)
+        self.assertEqual(response.status_code, 200)
         asset = models_assets.Asset.objects.get(pk=asset.id)
         del self.new_asset_data['asset']
         self._check_asset_supports(asset, supports)
         check_fields(self, self.new_asset_data.items(), asset)
-        new_device_data['ralph_device_id'] = None
+        # disable this check, handling this value is too sophisticated
+        del new_device_data['ralph_device_id']
         check_fields(self, new_device_data.items(), asset.device_info)
 
     def test_hostname_is_assigned(self):
@@ -416,6 +444,36 @@ class TestDataCenterDevicesView(TestDevicesView, BaseViewsTest):
 
     def test_mulitvalues_behaviour(self):
         self._test_mulitvalues_behaviour()
+
+    def test_blacklisted_sns_bahviour(self):
+        """
+        steps
+        - add dc-asset with 3 assets by form
+        - second one is blacklisted
+        - we got error message
+        - assets was not saved
+        """
+        form_data = self.get_asset_form_data()
+        sns = [form_data['sn'], '1234567890']
+        form_data.update({
+            'sn': ','.join(sns),
+            'barcode': ','.join(
+                [assets_utils.generate_barcode() for i in xrange(2)],
+            ),
+            'ralph_device_id': '',
+        })
+        add_asset_url = reverse(
+            'add_device',
+            kwargs={'mode': models_assets.ASSET_TYPE2MODE[form_data['type']]},
+        )
+        response = self.client.post(add_asset_url, form_data, follow=True)
+        error_msg = unicode(response.context['messages']._loaded_messages[0])
+        self.assertEqual(
+            error_msg,
+            'You have provided `sn` which is blacklisted.'
+            ' Please use a different one.'
+        )
+        self.assertFalse(Asset.objects.filter(sn__in=sns).all())
 
 
 class TestBackOfficeDevicesView(TestDevicesView, BaseViewsTest):
@@ -488,7 +546,7 @@ class TestBackOfficeDevicesView(TestDevicesView, BaseViewsTest):
         """
         self.new_asset_data = self.asset_data.copy()
         self.new_asset_data.update({
-            'hostname': 'XXXYY00001'
+            'hostname': 'XXXYY00001',
         })
         supports = self._update_with_supports(self.new_asset_data)
         new_office_data = self.office_data.copy()
@@ -599,6 +657,40 @@ class TestBackOfficeDevicesView(TestDevicesView, BaseViewsTest):
 
     def test_mulitvalues_behaviour(self):
         self._test_mulitvalues_behaviour()
+
+    def test_save_without_changes(self):
+        """Assets must be the same values after dry save."""
+        original_asset = BOAssetFactory(force_deprecation=True)
+        exclude = [
+            'assethistorychange',
+            'attachments',
+            'cache_version',
+            'device',
+            'licence',
+            'created',
+            'modified',
+            'source_device',
+            'supports',
+            'support_void_reporting',
+            'support_period',
+            'transitionshistory',
+        ]
+
+        constant_fields = set(original_asset._meta.get_all_field_names())
+        constant_fields.difference_update(exclude)
+        response, asset = self.update_asset(
+            original_asset.id,
+            asset=True,
+        )
+        for field in constant_fields:
+            self.assertEqual(
+                getattr(original_asset, field),
+                getattr(asset, field),
+                'Value of field "{}" is diffrent after save! '
+                'Before: {}; after: {}'
+                .format(field, getattr(original_asset, field),
+                        getattr(asset, field))
+            )
 
 
 class TestLicencesView(BaseViewsTest):
@@ -726,7 +818,7 @@ class TestLicencesView(BaseViewsTest):
         url = reverse('edit_licence', kwargs={
             'licence_id': license.id,
         })
-        form_data = self.get_object_form_data(url, 'form')
+        form_data = self.get_object_form_data(url, ['form'])
         license.delete()
         return form_data
 
@@ -734,7 +826,7 @@ class TestLicencesView(BaseViewsTest):
         """
         - get add license request data d1
 
-        - add licence with duplicated inv. nb. in data
+        - add licence with duplicated inv.-nb. in data
         - assert error occured
 
         - edit licence with duplicated sn in data
@@ -806,6 +898,24 @@ class TestLicencesView(BaseViewsTest):
                 'total': total,
             },
         )
+
+    def test_allow_duplicated_sns(self):
+        """
+        add license by factory with sn sn1
+        add by form with sn sn1
+        assert 200
+        """
+        existing_license = LicenceFactory()
+        license_data = self.get_license_form_data()
+        license_data.update({
+            'sn': existing_license.sn,
+            'parent': '',
+        })
+        add_license_url = reverse('add_licence')
+        response = self.client.post(
+            add_license_url, license_data, follow=True,
+        )
+        self.assertContains(response, '1 licences added')
 
 
 class TestSupportsView(BaseViewsTest):
@@ -893,7 +1003,6 @@ class TestSupportsView(BaseViewsTest):
         assets = self._update_with_supports(self.new_support_data)
         support = BOSupportFactory()
         url = reverse('edit_support', kwargs={
-            'mode': 'back_office',
             'support_id': support.id,
         })
         response = self.client.post(url, self.new_support_data)
@@ -918,7 +1027,7 @@ class TestSupportsView(BaseViewsTest):
         for mode, support in test_data:
             form_url = reverse(
                 'edit_support',
-                kwargs={'mode': mode, 'support_id': support.id},
+                kwargs={'support_id': support.id},
             )
             self._assert_field_in_form(form_url, required_fields)
 
@@ -934,7 +1043,6 @@ class TestAttachments(BaseViewsTest):
         """
         parent = BOAssetFactory()
         add_attachment_url = reverse('add_attachment', kwargs={
-            'mode': 'back_office',
             'parent': 'asset',
         })
         full_url = "{}?{}".format(
@@ -956,28 +1064,24 @@ class TestAttachments(BaseViewsTest):
 
     def test_add_bo_asset_attachment(self):
         add_attachment_url = reverse('add_attachment', kwargs={
-            'mode': 'back_office',
             'parent': 'asset',
         })
         self.add_attachment(BOAssetFactory(), add_attachment_url)
 
     def test_add_dc_asset_attachment(self):
         add_attachment_url = reverse('add_attachment', kwargs={
-            'mode': 'dc',
             'parent': 'asset',
         })
         self.add_attachment(DCAssetFactory(), add_attachment_url)
 
     def test_add_license_attachment(self):
         add_attachment_url = reverse('add_attachment', kwargs={
-            'mode': 'back_office',  # TODO: to rm if modes are cleaned
             'parent': 'license',
         })
         self.add_attachment(LicenceFactory(), add_attachment_url)
 
     def test_add_support_attachment(self):
         add_attachment_url = reverse('add_attachment', kwargs={
-            'mode': 'back_office',  # TODO: to rm if modes are cleaned
             'parent': 'support',
         })
         self.add_attachment(
@@ -1020,7 +1124,6 @@ class TestAttachments(BaseViewsTest):
 
     def test_delete_one_bo_asset_attachment(self):
         self.delete_attachment_check(
-            mode='back_office',
             parent_name='asset',
             parents=[BOAssetFactory()],
             delete_type='from_one',
@@ -1028,7 +1131,6 @@ class TestAttachments(BaseViewsTest):
 
     def test_delete_one_bo_licence_attachment(self):
         self.delete_attachment_check(
-            mode='back_office',
             parent_name='license',
             parents=[LicenceFactory()],
             delete_type='from_one',
@@ -1036,7 +1138,6 @@ class TestAttachments(BaseViewsTest):
 
     def test_delete_one_bo_support_attachment(self):
         self.delete_attachment_check(
-            mode='back_office',
             parent_name='support',
             parents=[BOSupportFactory()],
             delete_type='from_one',
@@ -1044,7 +1145,6 @@ class TestAttachments(BaseViewsTest):
 
     def test_delete_all_bo_asset_attachment(self):
         self.delete_attachment_check(
-            mode='back_office',
             parent_name='asset',
             parents=[BOAssetFactory(), BOAssetFactory(), BOAssetFactory()],
             delete_type='from_all',
@@ -1052,7 +1152,6 @@ class TestAttachments(BaseViewsTest):
 
     def test_delete_all_bo_licence_attachment(self):
         self.delete_attachment_check(
-            mode='back_office',
             parent_name='license',
             parents=[LicenceFactory(), LicenceFactory(), LicenceFactory()],
             delete_type='from_all',
@@ -1060,7 +1159,6 @@ class TestAttachments(BaseViewsTest):
 
     def test_delete_all_bo_support_attachment(self):
         self.delete_attachment_check(
-            mode='back_office',
             parent_name='support',
             parents=[
                 BOSupportFactory(), BOSupportFactory(), BOSupportFactory(),
@@ -1070,7 +1168,6 @@ class TestAttachments(BaseViewsTest):
 
     def test_delete_one_dc_asset_attachment(self):
         self.delete_attachment_check(
-            mode='dc',
             parent_name='asset',
             parents=[DCAssetFactory()],
             delete_type='from_one',
@@ -1078,7 +1175,6 @@ class TestAttachments(BaseViewsTest):
 
     def test_delete_one_dc_licence_attachment(self):
         self.delete_attachment_check(
-            mode='dc',
             parent_name='license',
             parents=[LicenceFactory()],
             delete_type='from_one',
@@ -1086,7 +1182,6 @@ class TestAttachments(BaseViewsTest):
 
     def test_delete_one_dc_support_attachment(self):
         self.delete_attachment_check(
-            mode='dc',
             parent_name='support',
             parents=[DCSupportFactory()],
             delete_type='from_one',
@@ -1094,7 +1189,6 @@ class TestAttachments(BaseViewsTest):
 
     def test_delete_all_dc_asset_attachment(self):
         self.delete_attachment_check(
-            mode='dc',
             parent_name='asset',
             parents=[DCAssetFactory(), DCAssetFactory(), DCAssetFactory()],
             delete_type='from_all',
@@ -1102,7 +1196,6 @@ class TestAttachments(BaseViewsTest):
 
     def test_delete_all_dc_licence_attachment(self):
         self.delete_attachment_check(
-            mode='dc',
             parent_name='license',
             parents=[LicenceFactory(), LicenceFactory(), LicenceFactory()],
             delete_type='from_all',
@@ -1110,7 +1203,6 @@ class TestAttachments(BaseViewsTest):
 
     def test_delete_all_dc_support_attachment(self):
         self.delete_attachment_check(
-            mode='dc',
             parent_name='support',
             parents=[
                 DCSupportFactory(), DCSupportFactory(), DCSupportFactory(),
@@ -1118,9 +1210,7 @@ class TestAttachments(BaseViewsTest):
             delete_type='from_all',
         )
 
-    def delete_attachment_check(
-        self, mode, parent_name, parents, delete_type
-    ):
+    def delete_attachment_check(self, parent_name, parents, delete_type):
         attachment = AttachmentFactory()
         for parent in parents:
             parent.attachments.add(attachment)
@@ -1128,7 +1218,6 @@ class TestAttachments(BaseViewsTest):
 
         parent = parents[0]  # each one is suitable, so take the first
         full_url = reverse('delete_attachment', kwargs={
-            'mode': mode,
             'parent': parent_name,
         })
         data = {
@@ -1389,7 +1478,7 @@ class TestColumnsInSearch(BaseViewsTest):
             'Additional remarks', 'Barcode', 'Category', 'Dropdown',
             'Hostname', 'IMEI', 'Invoice date', 'Invoice no.', 'Manufacturer',
             'Model', 'Property of', 'SN', 'Service name', 'Status', 'Type',
-            'User', 'Warehouse',
+            'User', 'Warehouse', 'Created',
         ])
         mode = 'back_office'
         search_url = reverse('asset_search', kwargs={'mode': mode})
@@ -1412,6 +1501,7 @@ class TestColumnsInSearch(BaseViewsTest):
             'Dropdown', 'Inventory number', 'Invoice date', 'Invoice no.',
             'Licence Type', 'Manufacturer', 'Number of purchased items',
             'Property of', 'Software Category', 'Type', 'Used', 'Valid thru',
+            'Created',
         ])
         search_url = reverse('licence_list')
         self.check_cols_presence(search_url, correct_col_names, mode=None)
@@ -1420,7 +1510,394 @@ class TestColumnsInSearch(BaseViewsTest):
         DCSupportFactory()
         correct_col_names = set([
             'Dropdown', 'Type', 'Contract id', 'Name', 'Date from', 'Date to',
-            'Price',
+            'Price', 'Created',
         ])
         search_url = reverse('support_list')
         self.check_cols_presence(search_url, correct_col_names, mode=None)
+
+
+class TestSyncFieldMixin(TestDevicesView):
+    """Whether this the synced field will saved in Assets and Ralph Core"""
+
+    def setUp(self):
+        self.client = login_as_su()
+        self.asset_factory = DCAssetFactory
+
+    def create_device(self):
+        venture = Venture(name='TestVenture', symbol='testventure')
+        venture.save()
+        Device.create(
+            sn='000000001',
+            model_name='test_model',
+            model_type=DeviceType.unknown,
+            priority=SAVE_PRIORITY,
+            venture=venture,
+            name='test_device',
+        )
+        return Device.objects.get(sn='000000001')
+
+    def test_sync_field_in_asset_and_core_on_add_form(self):
+        """Asset has assigned Ralph device, fields will be saved twice"""
+        ci_relation = CIRelationFactory()
+        device_environment = ci_relation.child
+        service = ci_relation.parent
+        data = self.get_asset_form_data()
+        device = self.create_device()
+        data['ralph_device_id'] = device.id
+        data['service'] = service.id
+        data['device_environment'] = device_environment.id
+
+        url = reverse('add_device', kwargs={'mode': 'dc'})
+        self.client.post(url, data, follow=True)
+
+        asset = Asset.objects.all()[0]
+        device = Device.objects.get(pk=device.id)
+
+        self.assertNotEqual(device.service, None)
+        self.assertEqual(device.service, asset.service)
+        self.assertNotEqual(asset.device_environment, None)
+        self.assertEqual(device.device_environment, asset.device_environment)
+
+    def test_sync_field_on_edit_asset(self):
+        """Asset created without Ralph device.
+        Fields sync when edit form saved."""
+        ci_relation = CIRelationFactory()
+        device_environment = ci_relation.child
+        service = ci_relation.parent
+        asset = DCAssetFactory()
+        asset.device_info.ralph_device_id = None
+        asset.device_info.save()
+
+        self.assertEqual(asset.device_info.ralph_device_id, None)
+
+        device = self.create_device()
+
+        url = reverse(
+            'device_edit', kwargs={'mode': 'dc', 'asset_id': asset.id},
+        )
+        data = self.get_object_form_data(url, ['asset_form', 'additional_info'])  # noqa
+        data['ralph_device_id'] = device.id
+        data['service'] = service.id
+        data['device_environment'] = device_environment.id
+        data['asset'] = 1
+        self.client.post(url, data, follow=True)
+
+        asset = Asset.objects.all()[0]
+        device = Device.objects.get(pk=device.id)
+
+        self.assertEqual(asset.device_info.ralph_device_id, device.id)
+        self.assertNotEqual(device.service, None)
+        self.assertEqual(device.service, asset.service)
+        self.assertNotEqual(asset.device_environment, None)
+        self.assertEqual(device.device_environment, asset.device_environment)
+
+    def test_sync_field_from_device_to_asset(self):
+        """Asset field changed when device was edited."""
+        asset = DCAssetFactory(service=None, device_environment=None)
+        ci_relation = CIRelationFactory()
+        device_environment = ci_relation.child
+        service = ci_relation.parent
+
+        device = Device.objects.all()[0]
+        device.service = service
+        device.device_environment = device_environment
+        device.save()
+
+        asset = Asset.objects.all()[0]
+        self.assertNotEqual(device.service, None)
+        self.assertEqual(device.service, asset.service)
+        self.assertNotEqual(asset.device_environment, None)
+        self.assertEqual(device.device_environment, asset.device_environment)
+
+
+class TestAssetAndDeviceLinkage(TestDevicesView, BaseViewsTest):
+
+    asset_factory = DCAssetFactory
+
+    def _get_add_url(self, asset_type):
+        url = reverse(
+            'add_device',
+            kwargs={
+                'mode': models_assets.ASSET_TYPE2MODE[asset_type],
+            },
+        )
+        return url
+
+    def _get_edit_url(self, asset_id, asset_type):
+        url = reverse(
+            'device_edit',
+            kwargs={
+                'mode': models_assets.ASSET_TYPE2MODE[asset_type],
+                'asset_id': asset_id,
+            },
+        )
+        return url
+
+    def _check_fields(self, obj, correct_data):
+        for field, correct_value in correct_data.iteritems():
+            self.assertEqual(getattr(obj, field), correct_value)
+
+    def _get_asset_with_dummy_device(self, asset_data=None):
+        # set device_info=None to prevent creation of device
+        form_data = self.get_asset_form_data({'device_info': None})
+        form_data['ralph_device_id'] = ''
+        form_data.update(asset_data or {})
+        asset = self.add_asset_by_form(form_data)
+        return asset
+
+    def test_asset_spares_existing_device_fields(self):
+        """
+        - create ralph-core device *core_device*
+        - add asset with ralph_device_id = core_device.id
+        - check each field (name, remark, dc) is unchanged
+        """
+        old_value = {
+            'dc': 'device dc',
+            'name': 'device name',
+            'remarks': 'device remarks',
+        }
+        device = DeviceFactory(**old_value)
+        self._check_fields(device, old_value)
+        form_data = self.get_asset_form_data()
+        form_data['ralph_device_id'] = device.id
+        self.add_asset_by_form(form_data)
+        device = Device.objects.get(pk=device.id)
+        self._check_fields(device, old_value)
+
+    def test_asset_clones_fields_to_new_device(self):
+        """Checks if required fields are cloned to dummy device."""
+        asset = self._get_asset_with_dummy_device()
+        correct_value = {
+            'dc': asset.warehouse.name,
+            'device_environment': asset.device_environment,
+            'name': asset.model.name,
+            'remarks': asset.order_no,
+            'service': asset.service,
+        }
+        device = Device.objects.get(sn=asset.sn)
+        self._check_fields(device, correct_value)
+
+    def test_adding_assets_creates_dummy_device(self):
+        """
+        - add asset without ralph_device_id
+        - check each field (dc, device_environment, name, remarks, service)
+        is copied to dummy device from asset
+        """
+        asset = self._get_asset_with_dummy_device()
+        correct_value = {
+            'dc': asset.warehouse.name,
+            'name': asset.model.name,
+            'remarks': asset.order_no,
+        }
+        device = Device.objects.get(sn=asset.sn)
+        self.assertEqual(asset.device_info.ralph_device_id, device.id)
+        self._check_fields(device, correct_value)
+
+    def test_editing_assets_creates_dummy_device(self):
+        """
+        edit asset when:
+            no devcie -> edit asset + dummy device
+
+        steps:
+        - add asset without device
+        - edit asset
+        - check edited asset is linked to dummy device
+        - dummy device has values copied from edited asset
+        """
+        asset = DCAssetFactory(device_info=None)
+        form_data = self.get_asset_form_data({'device_info': None})
+        form_data.update({
+            'create_stock': 'true',
+            'ralph_device_id': '',
+            'asset': '',
+        })
+        edit_url = self._get_edit_url(asset.id, form_data['type'])
+        self.client.post(edit_url, form_data, follow=True)
+        device = Device.objects.get(sn=asset.sn)
+        asset = Asset.objects.get(pk=asset.id)
+        self.assertEqual(asset.device_info.ralph_device_id, device.id)
+        correct_value = {
+            'dc': asset.warehouse.name,
+            'name': asset.model.name,
+            'remarks': asset.order_no,
+        }
+        self._check_fields(device, correct_value)
+
+    def test_adding_asset_links_device_by_barcode(self):
+        """
+        - create device with barcode
+        - create asset with barcode == device.barcode by form
+        - check asset.device_info.ralph_device_id = device.id
+        """
+        device = DeviceFactory()
+        asset = self._get_asset_with_dummy_device({'barcode': device.barcode})
+        device = Device.objects.get(barcode=device.barcode)
+        self.assertEqual(asset.device_info.ralph_device_id, device.id)
+
+    @unittest.skip("until editing form has option 'link-by-barcode'")
+    def test_editing_asset_links_device_by_barcode(self):
+        """
+        edit asset when:
+            - no devcie linked
+            - set barcode from an unlinked device -> edit asset + link to
+            device
+
+        steps:
+        - add asset without device
+        - edit asset by form
+        - check edited asset is linked to device
+        - device has the same values as before linking
+        """
+        device = DeviceFactory()
+        asset = DCAssetFactory(device_info=None)
+        form_data = self.get_asset_form_data({'device_info': None})
+        form_data.update({
+            'ralph_device_id': '',
+            'asset': '',
+            'barcode': device.barcode,
+        })
+        edit_url = self._get_edit_url(asset.id, form_data['type'])
+        values_before_linking = {
+            'dc': device.dc,
+            'name': device.name,
+            'remarks': device.remarks,
+        }
+        self.client.post(edit_url, form_data, follow=True)
+        device = Device.objects.get(pk=device.id)
+        asset = Asset.objects.get(pk=asset.id)
+        self.assertEqual(asset.device_info.ralph_device_id, device.id)
+        self._check_fields(device, values_before_linking)
+
+    def test_adding_asset_doesnt_link_device_if_already_linked(self):
+        '''
+        - add asset linked to device (both have same barcode)
+        - changed asset barcode (link still exists)
+        - add new asset with barcode == device.barcode by form
+        - check validation error
+        '''
+        asset_with_device = DCAssetFactory()
+        asset_with_device.barcode = 'changed-barcode'
+        asset_with_device.save()
+
+        form_data = self.get_asset_form_data({'device_info': None})
+        form_data.update({
+            'ralph_device_id': '',
+            'barcode': asset_with_device.get_ralph_device().barcode,
+        })
+        add_asset_url = self._get_add_url(form_data['type'])
+        response = self.client.post(add_asset_url, form_data, follow=True)
+        msg = unicode(response.context['messages']._loaded_messages[0])
+        self.assertEqual(
+            msg,
+            "Device with barcode already exist, check 'force unlink' "
+            "option to relink it.",
+        )
+
+    @unittest.skip("until editing form has option 'link-by-barcode'")
+    def test_editing_asset_doesnt_link_device_if_already_linked(self):
+        """
+        edit asset when:
+            - no devcie linked
+            - set barcode from already linked device -> error
+
+        steps:
+        - add asset with device
+        - edit asset by form, set barcode from linked device
+        - check error is shown
+        """
+        first_asset = DCAssetFactory()
+        first_asset.barcode = 'changed-barcode'
+        first_asset.save()
+
+        second_asset = DCAssetFactory(device_info=None)
+        self.assertTrue(first_asset.linked_device)
+        form_data = self.get_asset_form_data({'device_info': None})
+        form_data.update({
+            'ralph_device_id': '',
+            'asset': '',
+            'barcode': first_asset.linked_device.barcode,
+        })
+        edit_url = self._get_edit_url(second_asset.id, form_data['type'])
+        response = self.client.post(edit_url, form_data, follow=True)
+        msg = unicode(response.context['messages']._loaded_messages[0])
+        self.assertEqual(
+            msg,
+            "Device with barcode already exist, check 'force unlink' "
+            "option to relink it.",
+        )
+
+    def test_adding_asset_force_relink_device(self):
+        '''
+        Test old asset is replaced by new asset (in link with device).
+
+        - add asset linked to device (both have same barcode)
+        - changed asset barcode (link still exists)
+        - add new asset with barcode device.barcode and *force-unlike* checked
+        - check old-asset has blank ralph_device_id
+        - check new-asset.office_inforalph_device_id == device-id
+        '''
+        first_asset = DCAssetFactory()
+        first_asset.barcode = 'changed-barcode'
+        first_asset.save()
+
+        form_data = self.get_asset_form_data({'device_info': None})
+        form_data.update({
+            'ralph_device_id': '',
+            'barcode': first_asset.get_ralph_device().barcode,
+            'force_unlink': 'true',
+        })
+        add_asset_url = self._get_add_url(form_data['type'])
+        response = self.client.post(add_asset_url, form_data, follow=True)
+        asset_id = resolve(response.request['PATH_INFO']).kwargs['asset_id']
+        second_asset = models_assets.Asset.objects.get(pk=asset_id)
+
+        linked_device = Device.objects.get(pk=first_asset.id)
+        first_asset = Asset.objects.get(pk=first_asset.id)
+        self.assertEqual(
+            first_asset.device_info.ralph_device_id, None,
+        )
+        self.assertEqual(
+            second_asset.device_info.ralph_device_id, linked_device.id,
+        )
+        self.assertEqual(second_asset.barcode, linked_device.barcode)
+
+    @unittest.skip("until editing form has option 'link-by-barcode'")
+    def test_editing_asset_force_relink_device(self):
+        """
+        edit asset when:
+            - no devcie linked
+            - set barcode from already linked device
+            - checked 'force_unlink' option -> edit asset + relink device
+
+        steps:
+        - add asset a1 with device d1
+        - edit asset a2 by form,
+            - set barcode from linked device
+            - set force_unlink option
+        - check a1 is not linked
+        - check a2 is linked to device d1
+        """
+        first_asset = DCAssetFactory()
+        first_asset.barcode = 'changed-barcode'
+        first_asset.save()
+
+        self.assertTrue(first_asset.linked_device)
+        linked_device = first_asset.linked_device
+        second_asset = DCAssetFactory(device_info=None)
+        form_data = self.get_asset_form_data({'device_info': None})
+        form_data.update({
+            'ralph_device_id': '',
+            'asset': '',
+            'barcode': first_asset.linked_device.barcode,
+            'force_unlink': 'true',
+        })
+        edit_url = self._get_edit_url(second_asset.id, form_data['type'])
+        self.client.post(edit_url, form_data, follow=True)
+
+        first_asset = Asset.objects.get(pk=first_asset.id)
+        second_asset = Asset.objects.get(pk=second_asset.id)
+        self.assertFalse(first_asset.linked_device)
+        self.assertEqual(
+            second_asset.device_info.ralph_device_id, linked_device.id,
+        )
+        self.assertEqual(second_asset.barcode, linked_device.barcode)

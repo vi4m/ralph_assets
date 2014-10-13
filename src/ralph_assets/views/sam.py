@@ -11,7 +11,6 @@ import urllib
 from bob.data_table import DataTableColumn
 
 from django.contrib import messages
-from django.core.paginator import Paginator
 from django.core.urlresolvers import reverse
 from django.db.models import Sum, Count
 from django.http import HttpResponseRedirect
@@ -25,17 +24,12 @@ from ralph_assets.forms_sam import (
     BulkEditLicenceForm,
 )
 from ralph_assets.models_assets import MODE2ASSET_TYPE
-from ralph_assets.models_history import LicenceHistoryChange
 from ralph_assets.models_sam import (
     Licence,
     SoftwareCategory,
 )
 from ralph_assets.models_assets import ASSET_TYPE2MODE
-from ralph_assets.views.asset import (
-    Asset,
-    HISTORY_PAGE_SIZE,
-    MAX_PAGE_SIZE,
-)
+from ralph_assets.views.asset import Asset
 from ralph_assets.views.base import (
     AssetsBase,
     AjaxMixin,
@@ -50,7 +44,7 @@ LICENCE_PAGE_SIZE = 10
 
 
 class LicenseSelectedMixin(object):
-    mainmenu_selected = 'licences'
+    submodule_name = 'licences'
 
 
 class LicenceBaseView(LicenseSelectedMixin, AssetsBase):
@@ -108,7 +102,9 @@ class CheckBoxColumn(DataTableColumn):
 class LicenceList(LicenseSelectedMixin, GenericSearch):
     """Displays a list of licences."""
 
+    active_sidebar_item = 'search'
     template_name = 'assets/licence_list.html'
+
     Model = Licence
     Form = LicenceSearchForm
     columns = [
@@ -180,6 +176,12 @@ class LicenceList(LicenseSelectedMixin, GenericSearch):
             field='valid_thru',
             sort_expression='valid_thru',
         ),
+        DataTableColumn(
+            _('Created'),
+            bob_tag=True,
+            field='created',
+            sort_expression='created',
+        ),
     ]
 
     def get_context_data(self, **kwargs):
@@ -224,7 +226,7 @@ class LicenceFormView(LicenceBaseView):
 
 class AddLicence(LicenceFormView):
     """Add a new licence"""
-
+    active_sidebar_item = 'add licence'
     caption = _('Add Licence')
     message = _('Licence added')
     Form = AddLicenceForm
@@ -279,6 +281,7 @@ class LicenceBulkEdit(BulkEditBase, LicenceBaseView):
 
 class DeleteLicence(AssetsBase):
     """Delete a licence."""
+    submodule_name = 'licences'
 
     def post(self, *args, **kwargs):
         record_id = self.request.POST.get('record_id')
@@ -293,40 +296,6 @@ class DeleteLicence(AssetsBase):
         )
         licence.delete()
         return HttpResponseRedirect(self.back_to)
-
-
-class HistoryLicence(AssetsBase):
-    template_name = 'assets/history.html'
-    mainmenu_selected = 'licences'
-
-    def get_context_data(self, **kwargs):
-        query_variable_name = 'history_page'
-        ret = super(HistoryLicence, self).get_context_data(**kwargs)
-        licence_id = kwargs.get('licence_id')
-        licence = Licence.objects.get(id=licence_id)
-        history = LicenceHistoryChange.objects.filter(
-            licence=licence,
-        ).order_by('-date')
-        try:
-            page = int(self.request.GET.get(query_variable_name, 1))
-        except ValueError:
-            page = 1
-        if page == 0:
-            page = 1
-            page_size = MAX_PAGE_SIZE
-        else:
-            page_size = HISTORY_PAGE_SIZE
-        history_page = Paginator(history, page_size).page(page)
-        ret.update({
-            'history': history,
-            'history_page': history_page,
-            'show_status_button': False,
-            'query_variable_name': query_variable_name,
-            'object': licence,
-            'object_url': licence.url,
-            'title': _('History licence'),
-        })
-        return ret
 
 
 class CountLicence(AjaxMixin, JsonResponseMixin, GenericSearch):

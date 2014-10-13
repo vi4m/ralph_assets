@@ -1,0 +1,13 @@
+{% extends 'assets/report_detail.html' %}
+{% load cache i18n icons %}
+
+{% block collapse %}{% endblock %}
+{% block report_content %}
+    <a href="?csv=on" class="btn" data-role="async-report">
+        {% icon "fugue-blue-document-excel-csv" %}&nbsp;{% trans "download report" %}
+    </a>
+    <div id="eta"> </div>
+    <div class="progress" id="async-progress">
+        <div class="bar"></div>
+    </div>
+{% endblock %}

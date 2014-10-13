@@ -25,8 +25,11 @@ from ralph_assets import signals
 from ralph_assets.forms_transitions import TransitionForm
 from ralph_assets.models import ReportOdtSource, Transition, TransitionsHistory
 from ralph_assets.utils import iso2_to_iso3
-from ralph_assets.views.base import ACLGateway
-from ralph_assets.views.base import get_return_link
+from ralph_assets.views.base import (
+    ACLGateway,
+    ActiveSubmoduleByAssetMixin,
+    get_return_link,
+)
 from ralph_assets.views.invoice_report import generate_pdf_response
 from ralph_assets.views.search import _AssetSearch
 
@@ -221,11 +224,14 @@ class TransitionDispatcher(object):
         )
 
 
-class TransitionView(_AssetSearch):
+class TransitionView(ActiveSubmoduleByAssetMixin, _AssetSearch):
     template_name = 'assets/transitions.html'
     report_file_path = None
     transition_history = None
     transition_ended = None
+
+    def get_object_class(self):
+        return self.get_assets()[0].__class__
 
     def get_return_link(self, *args, **kwargs):
         if self.ids:

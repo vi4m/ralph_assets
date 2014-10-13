@@ -11,30 +11,8 @@ from __future__ import unicode_literals
 import abc
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes import generic
-from django.core.exceptions import PermissionDenied
 from django.db import models
 from lck.django.choices import Choices
-
-from ajax_select import LookupChannel
-
-
-class RestrictedLookupChannel(LookupChannel):
-
-    def check_auth(self, request):
-        """
-        Write restriction rules here.
-        """
-        if not request.user.is_authenticated():
-            raise PermissionDenied
-
-
-class SavingUser(models.Model):
-    class Meta:
-        abstract = True
-
-    def save(self, user=None, *args, **kwargs):
-        self.saving_user = user
-        return super(SavingUser, self).save(*args, **kwargs)
 
 
 class ProblemSeverity(Choices):

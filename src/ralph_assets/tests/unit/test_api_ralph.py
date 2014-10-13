@@ -7,7 +7,7 @@ from __future__ import unicode_literals
 
 from django.test import TestCase
 
-from ralph_assets.api_ralph import get_asset
+from ralph_assets.api_ralph import get_asset, get_asset_by_sn_or_barcode
 from ralph_assets.tests.utils.assets import (
     AssetCategoryFactory,
     AssetModelFactory,
@@ -51,3 +51,20 @@ class TestApiRalph(TestCase):
         asset = DCAssetFactory(model=model, source=None)
         asset_data = get_asset(asset.device_info.ralph_device_id)
         self.assertEqual(asset_data['source'], None)
+
+    def test_get_asset_by_sn_or_barcode(self):
+        category = AssetCategoryFactory()
+        model = AssetModelFactory(category=category)
+        asset = DCAssetFactory(
+            model=model,
+        )
+        # by sn
+        asset_data = get_asset_by_sn_or_barcode(asset.sn)
+        self.assertEqual(asset_data['sn'], asset.sn)
+        self.assertEqual(asset_data['barcode'], asset.barcode)
+        # by barcode
+        asset_data = get_asset_by_sn_or_barcode(asset.barcode)
+        self.assertEqual(asset_data['sn'], asset.sn)
+        self.assertEqual(asset_data['barcode'], asset.barcode)
+        # not exists
+        self.assertEqual(get_asset_by_sn_or_barcode('foo_ziew_123'), None)

@@ -9,7 +9,6 @@ from __future__ import unicode_literals
 from django.contrib.auth.models import User
 from django.core.urlresolvers import reverse
 from django.db import models
-from django.utils.html import escape
 from django.utils.translation import ugettext_lazy as _
 from lck.django.common.models import (
     Named,
@@ -19,6 +18,7 @@ from lck.django.common.models import (
 from mptt.fields import TreeForeignKey
 from mptt.models import MPTTModel
 
+from ralph.ui.channels import RestrictedLookupChannel
 from ralph_assets.models_assets import (
     Asset,
     AssetManufacturer,
@@ -31,10 +31,10 @@ from ralph_assets.models_assets import (
     Service,
 )
 from ralph_assets.models_util import (
-    RestrictedLookupChannel,
     WithForm,
 )
 from ralph.discovery.models_util import SavingUser
+from ralph_assets.history.models import HistoryMixin
 
 
 class LicenceType(Named):
@@ -59,6 +59,7 @@ class SoftwareCategory(Named, CreatableFromString):
 
 
 class Licence(
+    HistoryMixin,
     LicenseAndAsset,
     MPTTModel,
     TimeTrackable,
@@ -208,22 +209,8 @@ class BudgetInfoLookup(RestrictedLookupChannel):
         return self.format_item_display(obj)
 
     def format_item_display(self, obj):
-        return escape(obj.name)
+        return "<span>{name}</span>".format(name=obj.name)
 
 
 class SoftwareCategoryLookup(RestrictedLookupChannel):
     model = SoftwareCategory
-
-    def get_query(self, q, request):
-        return SoftwareCategory.objects.filter(
-            name__icontains=q
-        ).order_by('name')[:10]
-
-    def get_result(self, obj):
-        return obj.name
-
-    def format_match(self, obj):
-        return self.format_item_display(obj)
-
-    def format_item_display(self, obj):
-        return escape(obj.name)

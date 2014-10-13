@@ -1,11 +1,8 @@
 {% extends 'assets/base.html' %}
-{% load assets %}
-{% load bob %}
-{% load i18n %}
-{% load icons %}
+{% load assets bob i18n icons %}
 
 {% block extra_headers %}
-{{ block.super }}
+    {{ block.super }}
 {% endblock %}
 
 {% block scripts %}
@@ -29,7 +26,10 @@
             <strong data-searched-items="{{assets_count}}">{{assets_count}}</strong> {% trans "items searched" %}
         </div>
     {% endif %}
-    <h3>{{header}}</h3>
+    <div class='clearfix'>
+        <h3 class="pull-left">{{ header }}</h3>
+        {% mode_switch %}
+    </div>
         <div class="alert alert-success selected-assets-info-box" data-selected="false">
             <strong data-searched-items="{{assets_count}}">{{assets_count}}</strong> {% trans "assets selected" %}
         </div>
@@ -80,6 +80,9 @@
                     {% endif %}
                     {% if mode == 'back_office' %}
                         <td>{{row.remarks|default:'-' }}</td>
+                    {% endif %}
+                    {% if mode == 'back_office' %}
+                        <td>{{row.created|default:'-' }}</td>
                     {% endif %}
                     {% if not asset_hide_action_search %}
                     <td>

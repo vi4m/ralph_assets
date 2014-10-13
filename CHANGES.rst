@@ -1,8 +1,24 @@
 Change Log
 ----------
 
+
+2.3.0
+~~~~~
+Released on October 2, 2014
+
+* Added new fields service & environment to asset; both fields are synchronised with linked device from Ralph,
+* Improved API Scrooge,
+* Refactored history mechanism with many improvements (detect many-to-many & foreign-key changes),
+* Redesigned navigation, added mode switch in assets view,
+* Added new fields in search,
+* Added confirmation on leaving unsaved form,,
+* Redesigned report views & added new ones,
+* Changes in Ralph device linking algorithm,
+* Bugfixes.
+
+
 2.2.0
-~~~~~~~~~
+~~~~~
 Released on August 19, 2014
 
 * Assets in license forms are autocompleted by device's hostname,
@@ -12,7 +28,7 @@ Released on August 19, 2014
 
 
 2.1.0
-~~~~~~~~~
+~~~~~
 Released on August 1, 2014
 
 * Added new reports feature,

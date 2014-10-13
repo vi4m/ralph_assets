@@ -6,8 +6,7 @@
   {% if attachment_parent.attachments.all %}
     {% for attachment in attachment_parent.attachments.all %}
       <form id='delete-attachment-{{attachment.id}}' class='form-inline'
-        method="POST" action="{% url delete_attachment mode=mode parent=parent_name %}"
-        target="_blank"
+        method="POST" action="{% url delete_attachment parent=parent_name %}"
       >
         {% csrf_token %}
         <input type='hidden' name='parent_id' value='{{ attachment_parent.id }}'>

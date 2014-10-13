@@ -3,15 +3,15 @@ python:
   - "2.7"
 # command to install dependencies, e.g. pip install -r requirements.txt --use-mirrors
 install:
-    - pip install flake8 --use-mirrors
     - pip install git+https://github.com/zefciu/django-search-forms.git@develop
     - pip install git+https://github.com/quamilek/bob-ajax-selects.git@develop
     - pip install git+https://github.com/allegro/django-bob.git@develop
     - pip install git+https://github.com/allegro/ralph@develop  --use-mirrors --allow-all-external --allow-unverified ipaddr --allow-unverified postmarkup --allow-unverified python-graph-core --allow-unverified pysphere
     - pip install coveralls
     - pip install . --use-mirrors
-before_script:
-  make flake
+before_install:
+    - pip install flake8 --use-mirrors
+    - make flake
 script:
   make test-with-coveralls
 after_success:

@@ -7,6 +7,7 @@ from __future__ import unicode_literals
 
 from django.core.urlresolvers import reverse
 from django.test import TestCase
+from ralph.cmdb.tests.utils import CIRelationFactory
 
 from ralph_assets.models_assets import (
     Asset,
@@ -32,36 +33,22 @@ class TestDependency(TestCase):
             category=self.category_non_blade,
         )
         self.warehouse = WarehouseFactory()
+        self.ci_relation = CIRelationFactory()
 
     def test_add_device_with_blade_model(self):
         """Add device when choosen model category is_blade"""
-        response = self.client.post(
+        self.client.post(
             reverse('add_device', kwargs={'mode': 'dc'}),
             {
-                'slots': '',
                 'category': self.category_blade.pk,
-                'warehouse': self.warehouse.id,
                 'deprecation_rate': '25',
-                'sn': '123456789',
+                'device_environment': self.ci_relation.child.id,
                 'model': self.model_blade.id,
                 'ralph_device_id': '',
+                'service': self.ci_relation.parent.id,
+                'sn': '123456789',
                 'type': MODE2ASSET_TYPE['dc'].id,
-            }
-        )
-        self.assertFormError(
-            response, 'asset_form', 'slots', 'This field is required.',
-        )
-        response = self.client.post(
-            reverse('add_device', kwargs={'mode': 'dc'}),
-            {
-                'slots': 2,
-                'category': self.category_blade.pk,
                 'warehouse': self.warehouse.id,
-                'deprecation_rate': '25',
-                'sn': '123456789',
-                'model': self.model_blade.id,
-                'ralph_device_id': '',
-                'type': MODE2ASSET_TYPE['dc'].id
             }
         )
         self.assertEqual(Asset.objects.count(), 1)
@@ -71,14 +58,15 @@ class TestDependency(TestCase):
         self.client.post(
             reverse('add_device', kwargs={'mode': 'dc'}),
             {
-                'slots': '',
                 'category': self.category_non_blade.pk,
-                'warehouse': self.warehouse.id,
                 'deprecation_rate': '25',
-                'sn': '123456789',
+                'device_environment': self.ci_relation.child.id,
                 'model': self.model_none_blade.id,
                 'ralph_device_id': '',
+                'service': self.ci_relation.parent.id,
+                'sn': '123456789',
                 'type': MODE2ASSET_TYPE['dc'].id,
+                'warehouse': self.warehouse.id,
             }
         )
         self.assertEqual(Asset.objects.count(), 1)

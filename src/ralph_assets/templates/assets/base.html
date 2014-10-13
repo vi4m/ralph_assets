@@ -2,31 +2,36 @@
 {% load bob %}
 {% load icons %}
 
-{% block scripts %}
-{{ block.super }}
-<link rel="stylesheet" href="{{ STATIC_URL }}assets/css/style.css">
-<script type="text/javascript">
-	showAddAnotherPopup = function(e) {
-		window.open(e.href + e.previousElementSibling.value);
-		if (typeof(this.event) != 'undefined') {
-			this.event.preventDefault();
-		};
-		return false;
-}
-</script>
-<script type="text/javascript" src="{{ STATIC_URL }}assets/js/base.js"></script>
-<script type="text/javascript" src="{{ STATIC_URL }}assets/js/split.js"></script>
-<script type="text/javascript" src="{{ STATIC_URL }}assets/js/fill-fields.js"></script>
-<script type="text/javascript">
-var editor;
-$(".code_field").each(function(index, el) {
-    editor = ace.edit(el.id);
-    var that = this;
-    editor.getSelection().on('changeCursor', function(ev){
-    })
-});
-</script>
+{% block styles %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{{ STATIC_URL }}assets/css/style.css">
 {% endblock %}
+
+{% block scripts %}
+    {{ block.super }}
+    <script type="text/javascript">
+        showAddAnotherPopup = function(e) {
+            window.open(e.href + e.previousElementSibling.value);
+            if (typeof(this.event) != 'undefined') {
+                this.event.preventDefault();
+            };
+            return false;
+    }
+    </script>
+    <script type="text/javascript" src="{{ STATIC_URL }}assets/js/base.js"></script>
+    <script type="text/javascript" src="{{ STATIC_URL }}assets/js/split.js"></script>
+    <script type="text/javascript" src="{{ STATIC_URL }}assets/js/fill-fields.js"></script>
+    <script type="text/javascript">
+        var editor;
+        $(".code_field").each(function(index, el) {
+            editor = ace.edit(el.id);
+            var that = this;
+            editor.getSelection().on('changeCursor', function(ev){
+            })
+        });
+    </script>
+{% endblock %}
+
 {% block contentarea %}
     <div class="content{% if detect_changes %} detect-changes{% endif %}">
         {% block content %}{% endblock %}
@@ -34,13 +39,9 @@ $(".code_field").each(function(index, el) {
 {% endblock %}
 
 {% block sidebar %}
-    {% if sidebar_items %}
-        {% sidebar_menu sidebar_items sidebar_selected %}
+    {% if sidebar %}
+        {% sidebar_menu sidebar active_sidebar_item %}
     {% endif %}
     {% block sidebar_search %}
     {% endblock %}
-{% endblock %}
-
-{% block titlesubsection %}
-    {{ subsection }}{% if subsection %} - {% endif %}
 {% endblock %}

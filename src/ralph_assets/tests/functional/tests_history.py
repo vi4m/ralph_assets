@@ -8,6 +8,7 @@ from __future__ import unicode_literals
 from django.test import TestCase
 from django.core.urlresolvers import reverse
 
+from ralph.cmdb.tests.utils import CIRelationFactory
 from ralph_assets.models_assets import (
     Asset,
     AssetStatus,
@@ -15,15 +16,16 @@ from ralph_assets.models_assets import (
     SAVE_PRIORITY,
     AssetType
 )
-from ralph_assets.models_history import AssetHistoryChange
+from ralph_assets.history.models import History
 from ralph_assets.tests.utils.assets import (
     AssetCategoryFactory,
     AssetManufacturerFactory,
-    AssetOwnerFactory,
     AssetModelFactory,
+    AssetOwnerFactory,
     BOAssetFactory,
     WarehouseFactory,
 )
+from ralph_assets.tests.utils.sam import LicenceFactory
 from ralph.business.models import Venture
 from ralph.discovery.models_device import Device, DeviceType
 from ralph.ui.tests.global_utils import login_as_su
@@ -39,29 +41,30 @@ class HistoryAssetsView(TestCase):
             manufacturer=self.manufacturer,
             category=self.category,
         )
+        self.licences = [LicenceFactory() for _ in range(3)]
         self.warehouse = WarehouseFactory()
         self.asset_params = {
-            'type': 101,
-            'model': self.model.id,
-            'invoice_no': 123,
-            'order_no': 1,
+            'asset': True,  # Button name
+            'barcode': '666666',
+            'deprecation_rate': 0,
             'invoice_date': '2012-11-28',
+            'invoice_no': 123,
+            'licences': '',
+            'model': self.model.id,
+            'order_no': 1,
+            'price': 10,
+            'property_of': self.owner.id,
+            'provider': 'test_provider',
+            'remarks': 'test_remarks',
+            'size': 1,
+            'sn': '666-666-666',
+            'source': 1,
+            'status': AssetStatus.new.id,
             'support_period': 24,
             'support_type': 'standard',
             'support_void_reporting': 'on',
-            'provider': 'test_provider',
-            'property_of': self.owner.id,
-            'status': AssetStatus.new.id,
-            'remarks': 'test_remarks',
-            'size': 1,
-            'price': 10,
+            'type': 101,
             'warehouse': self.warehouse.id,
-            'sn': '666-666-666',
-            'barcode': '666666',
-            'asset': True,  # Button name
-            'source': 1,
-            'deprecation_rate': 0,
-            'licences': '',
         }
         self.asset_change_params = {
             'barcode': '777777',
@@ -72,10 +75,10 @@ class HistoryAssetsView(TestCase):
             'license_type': LicenseType.oem.id,
             'date_of_last_inventory': '2012-11-08',
             'last_logged_user': 'ralph',
+            'licences': '|'.join([str(lic.pk) for lic in self.licences]),
         }
         self.dc_asset_params = self.asset_params.copy()
         self.dc_asset_params.update({
-            'slots': 1.0,
             'ralph_device_id': '',
             'production_year': 2011,
         })
@@ -89,12 +92,17 @@ class HistoryAssetsView(TestCase):
         self.add_bo_device_asset()
         self.edit_bo_device_asset()
 
+    def convert_to_list_str(self, pipes):
+            if pipes == '':
+                return '[]'
+            return '[' + ', '.join(pipes.split('|')) + ']'
+
     def add_bo_device_asset(self):
         """Test check adding Asset into backoffice through the form UI"""
         url = '/assets/back_office/add/device/'
         attrs = self.bo_asset_params
-        request = self.client.post(url, attrs)
-        self.assertEqual(request.status_code, 302)
+        request = self.client.post(url, attrs, follow=True)
+        self.assertEqual(request.status_code, 200)
 
     def edit_bo_device_asset(self):
         """Test checks asset edition through the form UI"""
@@ -104,14 +112,12 @@ class HistoryAssetsView(TestCase):
             self.bo_asset_params.items() + self.asset_change_params.items()
         )
         attrs.update({'purpose': 2})
-        request = self.client.post(url, attrs)
-        self.assertEqual(request.status_code, 302)
+        request = self.client.post(url, attrs, follow=True)
+        self.assertEqual(request.status_code, 200)
 
     def test_change_status(self):
         """Test check the recording Asset status change in asset history"""
-        asset_history = AssetHistoryChange.objects.get(
-            asset=self.asset, field_name='status'
-        )
+        asset_history = self.asset.get_history(field_name='status')[0]
         self.assertListEqual(
             [asset_history.old_value, asset_history.new_value],
             [AssetStatus.new.name, AssetStatus.damaged.name]
@@ -119,13 +125,30 @@ class HistoryAssetsView(TestCase):
 
     def test_change_barcode(self):
         """Test check the recording Asset barcode change in asset history"""
-        asset_history = AssetHistoryChange.objects.filter(
-            asset=self.asset, field_name='barcode'
-        )
+        asset_history = self.asset.get_history(field_name='barcode')[0]
         self.assertListEqual(
-            [asset_history[0].old_value, asset_history[0].new_value],
+            [asset_history.old_value, asset_history.new_value],
             [self.asset_params['barcode'], self.asset_change_params['barcode']]
         )
+
+    def test_change_licences(self):
+        """Test check the recording Asset licence set change
+        in asset history"""
+        asset_history = self.asset.get_history(field_name='licence_set')[0]
+        self.assertListEqual(
+            [asset_history.old_value, asset_history.new_value],
+            [
+                self.convert_to_list_str(self.asset_params['licences']),
+                self.convert_to_list_str(self.asset_change_params['licences'])
+            ]
+        )
+
+        for licence in self.licences:
+            licence_history = licence.get_history(field_name='assets')[0]
+            self.assertEqual(licence_history.old_value, '[]')
+            self.assertEqual(
+                licence_history.new_value, '[{}]'.format(self.asset.id)
+            )
 
     def test_change_required_support(self):
         asset = BOAssetFactory()
@@ -141,10 +164,7 @@ class HistoryAssetsView(TestCase):
             'asset': True,
         })
         response = self.client.post(url, update_dict)
-        url = reverse('device_history', kwargs={
-            'mode': 'back_office',
-            'asset_id': asset.id,
-        })
+        url = History.get_history_url_for_object(asset)
         response = self.client.get(url)
         self.assertContains(response, 'required_support')
 
@@ -159,27 +179,29 @@ class ConnectAssetWithDevice(TestCase):
             category=self.category,
         )
         self.warehouse = WarehouseFactory()
+        ci_relation = CIRelationFactory()
         self.asset_params = {
-            'type': AssetType.data_center.id,
-            'model': self.model.id,
-            'invoice_no': 666,
-            'order_no': 2,
-            'invoice_date': '2012-11-29',
-            'provider': 'test_provider',
-            'status': AssetStatus.new.id,
-            'remarks': 'test_remarks',
-            'price': 10,
-            'warehouse': self.warehouse.id,
-            'barcode': '7777',
-            'source': 1,
-            'deprecation_rate': 0,
-            'production_year': 2011,
             'asset': True,  # Button name
+            'barcode': '7777',
+            'deprecation_rate': 0,
+            'device_environment': ci_relation.child.id,
+            'invoice_date': '2012-11-29',
+            'invoice_no': 666,
+            'model': self.model.id,
+            'order_no': 2,
+            'price': 10,
+            'production_year': 2011,
+            'provider': 'test_provider',
+            'remarks': 'test_remarks',
+            'service': ci_relation.parent.id,
+            'source': 1,
+            'status': AssetStatus.new.id,
+            'type': AssetType.data_center.id,
+            'warehouse': self.warehouse.id,
         }
         self.dc_asset_params = self.asset_params.copy()
         self.dc_asset_params.update({
             'ralph_device_id': '',
-            'slots': 0,
         })
         self.asset = None
 
@@ -237,28 +259,30 @@ class TestsStockDevice(TestCase):
             category=self.category,
         )
         self.warehouse = WarehouseFactory()
+        ci_relation = CIRelationFactory()
         self.asset_params = {
-            'type': AssetType.data_center.id,
-            'model': self.model.id,
-            'warehouse': self.warehouse.id,
-            'status': AssetStatus.new.id,
-            'remarks': 'test_remarks',
-            'order_no': 2,
+            'asset': True,  # Button name
+            'barcode': '7777',
+            'deprecation_rate': 0,
+            'device_environment': ci_relation.child.id,
             'invoice_date': '2012-11-29',
             'invoice_no': 00001,
+            'model': self.model.id,
+            'order_no': 2,
             'price': 10,
             'provider': 'test_provider',
-            'deprecation_rate': 0,
-            'source': 1,
+            'remarks': 'test_remarks',
+            'service': ci_relation.parent.id,
             'sn': 'fake-sn',
-            'barcode': '7777',
-            'asset': True,  # Button name
+            'source': 1,
+            'status': AssetStatus.new.id,
+            'type': AssetType.data_center.id,
+            'warehouse': self.warehouse.id,
         }
         self.dc_asset_params = self.asset_params.copy()
         self.dc_asset_params.update({
             'ralph_device_id': '',
             'production_year': 2011,
-            'slots': 0,
         })
 
     def create_device(self):

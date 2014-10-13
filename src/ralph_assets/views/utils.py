@@ -19,27 +19,55 @@ def _move_data(src, dst, fields):
 
 
 @transaction.commit_on_success
-def _create_device(creator_profile, asset_data, cleaned_additional_info, mode):
-    if mode == 'dc':
-        asset = Asset(created_by=creator_profile, **asset_data)
-        device_info = DeviceInfo()
-        device_info.ralph_device_id = cleaned_additional_info[
-            'ralph_device_id'
-        ]
-        device_info.u_level = cleaned_additional_info['u_level']
-        device_info.u_height = cleaned_additional_info['u_height']
-        device_info.save(user=creator_profile.user)
-        asset.device_info = device_info
-    elif mode == 'back_office':
-        _move_data(asset_data, cleaned_additional_info, ['purpose'])
-        asset = Asset(created_by=creator_profile, **asset_data)
-        office_info = OfficeInfo()
-        office_info.__dict__.update(**cleaned_additional_info)
-        office_info.coa_oem_os = cleaned_additional_info['coa_oem_os']
-        office_info.save(user=creator_profile.user)
-        asset.office_info = office_info
-    asset.save(user=creator_profile.user)
-    return asset
+def _create_assets(creator_profile, asset_form, additional_form, mode):
+    asset_data = {}
+    for f_name, f_value in asset_form.cleaned_data.items():
+        if f_name not in {
+            "barcode", "category", "company", "cost_center",
+            "department", "employee_id", "imei", "licences", "manager",
+            "sn", "profit_center", "supports",
+        }:
+            asset_data[f_name] = f_value
+    force_unlink = additional_form.cleaned_data.get('force_unlink', None)
+    sns = asset_form.cleaned_data.get('sn', [])
+    barcodes = asset_form.cleaned_data.get('barcode', [])
+    imeis = (
+        asset_form.cleaned_data.pop('imei')
+        if 'imei' in asset_form.cleaned_data else None
+    )
+
+    assets_ids = []
+    for index in range(len(sns or barcodes)):
+        asset_data['sn'] = sns[index] if sns else None
+        asset_data['barcode'] = barcodes[index] if barcodes else None
+        if imeis:
+            additional_form.cleaned_data['imei'] = imeis[index]
+        cleaned_additional_info = additional_form.cleaned_data
+        if mode == 'dc':
+            asset = Asset(created_by=creator_profile, **asset_data)
+            device_info = DeviceInfo()
+            for field in ['ralph_device_id', 'u_level', 'u_height']:
+                setattr(device_info, field, cleaned_additional_info[field])
+            device_info.save(
+                user=creator_profile.user,
+            )
+            asset.device_info = device_info
+            asset.save(
+                user=creator_profile.user,
+                force_unlink=cleaned_additional_info['force_unlink'],
+            )
+        elif mode == 'back_office':
+            _move_data(asset_data, cleaned_additional_info, ['purpose'])
+            asset = Asset(created_by=creator_profile, **asset_data)
+            office_info = OfficeInfo()
+            office_info.__dict__.update(**cleaned_additional_info)
+            office_info.coa_oem_os = cleaned_additional_info['coa_oem_os']
+            office_info.save(user=creator_profile.user)
+            asset.office_info = office_info
+            asset.save(user=creator_profile.user)
+        asset.save(force_unlink=force_unlink)
+        assets_ids.append(asset.id)
+    return assets_ids
 
 
 @transaction.commit_on_success
@@ -76,12 +104,13 @@ def _update_office_info(user, asset, office_info_data):
 
 @transaction.commit_on_success
 def _update_device_info(user, asset, device_info_data):
-    if not asset.device_info:
-        asset.device_info = DeviceInfo()
-    asset.device_info.__dict__.update(
-        **device_info_data
-    )
-    asset.device_info.save(user=user)
+    device_info = asset.device_info
+    if not device_info:
+        device_info = DeviceInfo()
+    for key, value in device_info_data.iteritems():
+        setattr(device_info, key, value)
+    device_info.save(user=user)
+    asset.device_info = device_info
     return asset
 
 
