@@ -25,6 +25,7 @@ from ralph_assets.tests.utils.assets import (
     AssetOwnerFactory,
     BOAssetFactory,
     WarehouseFactory,
+    get_device_info_dict,
 )
 from ralph_assets.tests.utils.licences import LicenceFactory
 from ralph.business.models import Venture
@@ -204,6 +205,8 @@ class ConnectAssetWithDevice(TestCase):
             'warehouse': self.warehouse.id,
         }
         self.dc_asset_params = self.asset_params.copy()
+        device_info_data = get_device_info_dict()
+        self.dc_asset_params.update(device_info_data)
         self.dc_asset_params.update({
             'ralph_device_id': '',
         })
@@ -264,6 +267,7 @@ class TestsStockDevice(TestCase):
         )
         self.warehouse = WarehouseFactory()
         ci_relation = CIRelationFactory()
+
         self.asset_params = {
             'asset': True,  # Button name
             'barcode': '7777',
@@ -285,6 +289,8 @@ class TestsStockDevice(TestCase):
             'warehouse': self.warehouse.id,
         }
         self.dc_asset_params = self.asset_params.copy()
+        device_info = get_device_info_dict()
+        self.dc_asset_params.update(device_info)
         self.dc_asset_params.update({
             'ralph_device_id': '',
             'production_year': 2011,
@@ -305,7 +311,7 @@ class TestsStockDevice(TestCase):
 
     def test_form_with_ralph_device_id(self):
         ralph_device = self.create_device()
-        asset_params = self.asset_params
+        asset_params = self.dc_asset_params
         asset_params['ralph_device_id'] = ralph_device.id
         request = self.client.post('/assets/dc/add/device/', asset_params)
         self.assertEqual(request.status_code, 302)

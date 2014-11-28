@@ -10,16 +10,21 @@ from ralph.account.models import Region
 
 from ralph.cmdb.tests.utils import CIRelationFactory
 from ralph_assets.models_assets import Asset, AssetType, AssetStatus
+from ralph_assets.tests.functional.tests_view import TestDevicesView
 from ralph_assets.tests.util import SCREEN_ERROR_MESSAGES
 from ralph_assets.tests.utils.assets import (
     AssetCategoryFactory,
     AssetModelFactory,
+    DCAssetFactory,
     WarehouseFactory,
 )
 from ralph.ui.tests.global_utils import login_as_su
 
 
-class TestMultivalueFields(TestCase):
+class TestMultivalueFields(TestDevicesView, TestCase):
+    asset_factory = DCAssetFactory
+    mode = 'dc'
+
     def setUp(self):
         self.client = login_as_su()
         self.warehouse = WarehouseFactory()
@@ -27,7 +32,11 @@ class TestMultivalueFields(TestCase):
         self.model = AssetModelFactory(category=self.category)
         self.addform = '/assets/dc/add/device/'
         ci_relation = CIRelationFactory()
-        self.common_test_data = dict(
+        self.common_test_data = self.get_asset_form_data({
+            'barcode': '',
+            'sn': '',
+        })
+        self.common_test_data.update(dict(
             asset=True,
             deprecation_rate=0,
             device_environment=ci_relation.child.id,
@@ -44,7 +53,7 @@ class TestMultivalueFields(TestCase):
             status=AssetStatus.new.id,
             type=AssetType.data_center.id,
             warehouse=self.warehouse.id,
-        )
+        ))
 
     def test_add_form_testing_sn_and_barcode(self):
         """

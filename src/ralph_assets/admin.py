@@ -307,3 +307,30 @@ class LicenceAdmin(ModelAdmin):
 
 
 admin.site.register(Licence, LicenceAdmin)
+
+
+class DataCenterAdmin(ModelAdmin):
+    save_on_top = True
+    list_display = ('name',)
+    search_fields = ('name',)
+
+
+admin.site.register(models_assets.DataCenter, DataCenterAdmin)
+
+
+class ServerRoomAdmin(ModelAdmin):
+    save_on_top = True
+    list_display = ('name', 'data_center')
+    search_fields = ('name', 'data_center')
+
+
+admin.site.register(models_assets.ServerRoom, ServerRoomAdmin)
+
+
+class RackAdmin(ModelAdmin):
+    save_on_top = True
+    list_display = ('name', 'data_center', 'max_u_height', 'server_room',)
+    search_fields = ('name', 'data_center', 'max_u_height', 'server_room',)
+
+
+admin.site.register(models_assets.Rack, RackAdmin)

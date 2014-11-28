@@ -14,7 +14,7 @@ from ralph.business.models import Venture
 from ralph.discovery.models_device import Device, DeviceType
 
 from ralph_assets.api_pricing import get_assets, get_asset_parts
-from ralph_assets.models_assets import PartInfo
+from ralph_assets.models_assets import AssetStatus, PartInfo
 from ralph_assets.licences.models import LicenceAsset, Licence, WrongModelError
 from ralph_assets.tests.utils.assets import (
     AssetSubCategoryFactory,
@@ -103,6 +103,9 @@ class TestModelAsset(TestCase):
         self.assertEqual(self.asset.venture, venture)
         self.assertEqual(self.asset2.venture, None)
         self.assertEqual(asset_without_device.venture, None)
+
+    def test_in_use_status(self):
+        self.assertEqual(AssetStatus.used.desc, 'in use')
 
 
 class TestModelLicences(TestCase):

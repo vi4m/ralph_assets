@@ -16,6 +16,7 @@ from dateutil.relativedelta import relativedelta
 
 from dj.choices import Country
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
 from lck.django.choices import Choices
 from lck.django.common import nested_commit_on_success
 from lck.django.common.models import (
@@ -69,6 +70,12 @@ if not ASSET_HOSTNAME_TEMPLATE:
 HOSTNAME_FIELD_HELP_TIP = getattr(settings, 'HOSTNAME_FIELD_HELP_TIP', '')
 
 REPORT_LANGUAGES = getattr(settings, 'REPORT_LANGUAGES', None)
+
+INVALID_DATA_CENTER = 1
+INVALID_SERVER_ROOM = 2
+INVALID_ORIENTATION = 3
+INVALID_POSITION = 4
+REQUIRED_SLOT_NUMBER = 5
 
 
 def _replace_empty_with_none(obj, fields):
@@ -138,6 +145,20 @@ class Orientation(Choices):
     left = _("left")
     right = _("right")
 
+    @classmethod
+    def is_width(cls, orientation):
+        is_width = orientation in set(
+            [choice.id for choice in cls.WIDTH.choices]
+        )
+        return is_width
+
+    @classmethod
+    def is_depth(cls, orientation):
+        is_depth = orientation in set(
+            [choice.id for choice in cls.DEPTH.choices]
+        )
+        return is_depth
+
 
 class AssetType(Choices):
     _ = Choices.Choice
@@ -182,7 +203,7 @@ class AssetStatus(Choices):
     new = _("new")
     in_progress = _("in progress")
     waiting_for_release = _("waiting for release")
-    used = _("used")
+    used = _("in use")
     loan = _("loan")
     damaged = _("damaged")
     liquidated = _("liquidated")
@@ -685,7 +706,7 @@ class Asset(
     @property
     def exists(self):
         """Check if object is a new db record"""
-        return self.pk is None
+        return self.pk is not None
 
     def handle_device_linkage(self, force_unlink):
         """When try to match it with an existing device or create a dummy
@@ -708,7 +729,7 @@ class Asset(
             # asset created with 'add part'
             pass
         else:
-            if self.exists:
+            if not self.exists:
                 if not ralph_device_id:
                     device = self.find_device_to_link()
                     if device:
@@ -916,14 +937,14 @@ class Rack(Named.NonUnique):
         unique_together = ('name', 'data_center')
 
     data_center = models.ForeignKey(DataCenter, null=False, blank=False)
-    deprecated_ralph_rack = models.ForeignKey(
-        DeprecatedRalphRack, null=True, related_name='deprecated_asset_rack',
-        blank=True,
-    )
-    max_u_height = models.IntegerField(default=48)
     server_room = models.ForeignKey(
         ServerRoom, verbose_name=_("server room"),
         null=True,
+        blank=True,
+    )
+    max_u_height = models.IntegerField(default=48)
+    deprecated_ralph_rack = models.ForeignKey(
+        DeprecatedRalphRack, null=True, related_name='deprecated_asset_rack',
         blank=True,
     )
 
@@ -939,8 +960,8 @@ class DeviceInfo(TimeTrackable, SavingUser, SoftDeletable):
     u_level = models.CharField(max_length=10, null=True, blank=True)
     u_height = models.CharField(max_length=10, null=True, blank=True)
     data_center = models.ForeignKey(DataCenter, null=True, blank=False)
-    server_room = models.ForeignKey(ServerRoom, null=True, blank=True)
-    rack = models.ForeignKey(Rack, null=True)
+    server_room = models.ForeignKey(ServerRoom, null=True, blank=False)
+    rack = models.ForeignKey(Rack, null=True, blank=True)
     # deperecated field, use rack instead
     rack_old = models.CharField(max_length=10, null=True, blank=True)
     slot_no = models.IntegerField(
@@ -951,6 +972,66 @@ class DeviceInfo(TimeTrackable, SavingUser, SoftDeletable):
         choices=Orientation(),
         default=Orientation.front.id,
     )
+
+    def clean_fields(self, exclude=None):
+        """
+        Constraints:
+        - picked rack is from picked server-room
+        - picked server-room is from picked data-center
+        - postion = 0: orientation(left, right)
+        - postion > 0: orientation(front, middle, back)
+        - position <= rack.max_u_height
+        - slot_no: asset is_blade=True
+        """
+        if self.rack and self.server_room:
+            if self.rack.server_room != self.server_room:
+                msg = 'Valid server room for this rack is: "{}"'.format(
+                    self.rack.server_room.name,
+                )
+                raise ValidationError(
+                    {'server_room': msg}, code=INVALID_SERVER_ROOM,
+                )
+        if self.server_room and self.data_center:
+            if self.server_room.data_center != self.data_center:
+                msg = 'Valid data center for this server room is: "{}"'.format(
+                    self.server_room.data_center.name,
+                )
+                raise ValidationError(
+                    {'data_center': msg}, code=INVALID_DATA_CENTER,
+                )
+        if self.position == 0 and not Orientation.is_width(self.orientation):
+            msg = 'Valid orientations for picked position are: {}'.format(
+                ', '.join(
+                    choice.desc for choice in Orientation.WIDTH.choices
+                )
+            )
+            raise ValidationError(
+                {'orientation': msg}, code=INVALID_ORIENTATION
+            )
+        if self.position > 0 and not Orientation.is_depth(self.orientation):
+            msg = 'Valid orientations for picked position are: {}'.format(
+                ', '.join(
+                    choice.desc for choice in Orientation.DEPTH.choices
+                )
+            )
+            raise ValidationError(
+                {'orientation': msg}, code=INVALID_ORIENTATION,
+            )
+        if self.rack and self.position > self.rack.max_u_height:
+            msg = 'Position is higher than "max u height" = {}'.format(
+                self.rack.max_u_height,
+            )
+            raise ValidationError({'position': msg}, code=INVALID_POSITION)
+        try:
+            is_blade = self.asset.model.category.is_blade
+        except (AttributeError, Asset.DoesNotExist):
+            is_blade = False
+        else:
+            if is_blade and self.slot_no is None:
+                msg = "'slot number' is required when asset is blade"
+                raise ValidationError(
+                    {'slot_no': msg}, code=REQUIRED_SLOT_NUMBER,
+                )
 
     @property
     def size(self):

@@ -6,12 +6,14 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import datetime
-from dj.choices import Country
 
+from dj.choices import Country
+from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.test.utils import override_settings
 from ralph.account.models import Region
 from ralph.discovery.tests.util import DeviceFactory
+
 from ralph_assets import models_assets
 from ralph_assets.others import get_assets_rows, get_licences_rows
 from ralph_assets.tests.utils import UserFactory
@@ -21,8 +23,11 @@ from ralph_assets.tests.utils.assets import (
     AssetManufacturerFactory,
     AssetModelFactory,
     BOAssetFactory,
+    DataCenterFactory,
     DCAssetFactory,
     DeviceInfoFactory,
+    RackFactory,
+    ServerRoomFactory,
     WarehouseFactory,
 )
 from ralph_assets.tests.utils.licences import (
@@ -365,3 +370,121 @@ class TestLinkedDevice(TestCase):
         self.update_device(device_to_check, 'sn', dc_asset.sn)
         self.update_device(device_to_check, 'barcode', dc_asset.barcode)
         self.assertEqual(dc_asset.find_device_to_link(), device_to_check)
+
+
+class TestDeviceInfoCleaning(TestCase):
+
+    def setUp(self):
+        self.form_data = {
+            'ralph_device_id': '',
+        }
+        self.rack = RackFactory()
+        self.correct_device_info = DeviceInfoFactory(
+            rack=self.rack,
+            server_room=self.rack.server_room,
+            data_center=self.rack.server_room.data_center,
+        )
+        self.asset = DCAssetFactory(device_info=self.correct_device_info)
+
+    def test_data_center_and_server_room_relation(self):
+        '''test if picked server-room is owned by picked data-center'''
+        device_info = self.correct_device_info
+        # positive
+        device_info.clean_fields()
+
+        # nagative
+        device_info = self.correct_device_info
+        device_info.data_center = DataCenterFactory()
+        self.assertNotEqual(
+            device_info.data_center,
+            device_info.server_room.data_center,
+        )
+        with self.assertRaises(ValidationError) as exc:
+            device_info.clean_fields()
+        self.assertEqual(exc.exception.code, models_assets.INVALID_DATA_CENTER)
+
+    def test_server_room_relation(self):
+        '''test if picked rack is owned by picked server-room'''
+        device_info = self.correct_device_info
+        # positive
+        device_info.clean_fields()
+
+        # nagative
+        device_info = self.correct_device_info
+        device_info.server_room = ServerRoomFactory()
+        device_info.data_center = device_info.server_room.data_center
+        self.assertNotEqual(
+            device_info.rack.server_room,
+            device_info.server_room,
+        )
+        with self.assertRaises(ValidationError) as exc:
+            device_info.clean_fields()
+        self.assertEqual(exc.exception.code, models_assets.INVALID_SERVER_ROOM)
+
+    def test_position_requires_width(self):
+        '''test if picked orientation is owned by picked position - width'''
+        device_info = self.correct_device_info
+        device_info.position = 0
+        # positive
+        device_info.orientation = models_assets.Orientation.left
+        device_info.clean_fields()
+        device_info.orientation = models_assets.Orientation.right
+        device_info.clean_fields()
+        # nagative
+        device_info.orientation = models_assets.Orientation.front
+        with self.assertRaises(ValidationError) as exc:
+            device_info.clean_fields()
+        self.assertEqual(exc.exception.code, models_assets.INVALID_ORIENTATION)
+
+    def test_position_requires_height(self):
+        '''test if picked orientation is owned by picked position - height'''
+        device_info = self.correct_device_info
+        positive_non_zero = 5
+        device_info.position = positive_non_zero
+        # positive
+        device_info.orientation = models_assets.Orientation.front
+        device_info.clean_fields()
+        device_info.orientation = models_assets.Orientation.middle
+        device_info.clean_fields()
+        device_info.orientation = models_assets.Orientation.back
+        device_info.clean_fields()
+        # nagative
+        device_info.orientation = models_assets.Orientation.left
+        with self.assertRaises(ValidationError) as exc:
+            device_info.clean_fields()
+        self.assertEqual(exc.exception.code, models_assets.INVALID_ORIENTATION)
+
+    def test_position_is_valid(self):
+        '''test if picked position works with max_u_height'''
+        device_info = self.correct_device_info
+        device_info.position = device_info.rack.max_u_height - 1
+        # positive
+        device_info.clean_fields()
+        # nagative
+        device_info.position = device_info.rack.max_u_height + 1
+        with self.assertRaises(ValidationError) as exc:
+            device_info.clean_fields()
+        self.assertEqual(exc.exception.code, models_assets.INVALID_POSITION)
+
+    def test_slot_no_requirement(self):
+        '''test if asset which is blade requires slot_no'''
+        device_info = self.correct_device_info
+        a_slot_no = 5
+
+        # positive
+        device_info.asset.model.category.is_blade = False
+        device_info.slot_no = None
+        device_info.clean_fields()
+
+        device_info.asset.model.category.is_blade = True
+        device_info.slot_no = a_slot_no
+        device_info.clean_fields()
+
+        # nagative
+        device_info.asset.model.category.is_blade = True
+        device_info.slot_no = None
+        with self.assertRaises(ValidationError) as exc:
+            device_info.clean_fields()
+        self.assertEqual(
+            exc.exception.code, models_assets.REQUIRED_SLOT_NUMBER,
+        )

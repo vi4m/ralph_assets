@@ -1,6 +1,21 @@
 Change Log
 ----------
 
+DEV
+~~~
+Released on TBA
+
+* Added new fields to data center asset, like:
+    - data-center,
+    - server-room,
+    - rack,
+    - position,
+    - orientation
+    - slot-number,
+
+* Renamed rack field to rack_old.
+
+
 2.4.0
 ~~~~~
 Released on November 5, 2014

@@ -35,6 +35,7 @@ from ralph_assets.licences.models import (
     LicenceAsset,
     LicenceUser,
 )
+from ralph_assets.forms import DeviceForm
 from ralph_assets.models_assets import Asset, SAVE_PRIORITY
 from ralph_assets.tests.utils import (
     AjaxClient,
@@ -52,10 +53,12 @@ from ralph_assets.tests.utils.assets import (
     BudgetInfoFactory,
     CoaOemOsFactory,
     DCAssetFactory,
+    DeviceInfoFactory,
     ServiceFactory,
     WarehouseFactory,
     generate_barcode,
     generate_imei,
+    get_device_info_dict,
 )
 from ralph_assets.tests.utils.licences import (
     LicenceAssetFactory,
@@ -289,7 +292,9 @@ class TestDevicesView(BaseViewsTest):
             'mode': urls.normalize_asset_mode(asset.type.name),
             'asset_id': asset.id,
         })
-        form_data = self.get_object_form_data(url, ['asset_form'])
+        form_data = self.get_object_form_data(
+            url, ['asset_form', 'additional_info'],
+        )
         if asset.device_info:
             asset.device_info.delete()
         elif asset.office_info:
@@ -433,13 +438,8 @@ class TestDataCenterDevicesView(TestDevicesView, TestRegions, BaseViewsTest):
         self.asset_data.update({
             'type': models_assets.AssetType.data_center.id,
         })
-        self.device_data = {
-            'ralph_device_id': '',
-            'u_height': 14,
-            'u_level': 21,
-        }
-
-        self.additional_fields = ['ralph_device_id', 'u_height', 'u_level']
+        self.device_info = get_device_info_dict()
+        self.additional_fields = DeviceForm.Meta.fields
         self.visible_add_form_fields = self._visible_add_form_fields[:]
         self.visible_add_form_fields.extend(self.additional_fields)
         self.visible_edit_form_fields = self._visible_edit_form_fields[:]
@@ -457,7 +457,8 @@ class TestDataCenterDevicesView(TestDevicesView, TestRegions, BaseViewsTest):
         asset_data.update({
             'sn': str(uuid.uuid1()),
         })
-        device_data = self.device_data.copy()
+        device_data = self.device_info.copy()
+        device_data['ralph_device_id'] = ''
         request_data = {}
         request_data.update(asset_data)
         request_data.update(device_data)
@@ -491,15 +492,13 @@ class TestDataCenterDevicesView(TestDevicesView, TestRegions, BaseViewsTest):
         """
         self.new_asset_data = self.asset_data.copy()
         supports = self._update_with_supports(self.new_asset_data)
-        new_device_data = self.device_data.copy()
+        new_device_data = self.device_info.copy()
         asset = DCAssetFactory()
         edited_data = {}
         edited_data.update(self.new_asset_data)
         edited_data.update(new_device_data)
-        url = reverse('device_edit', kwargs={
-            'mode': self.mode,
-            'asset_id': asset.id,
-        })
+        edited_data['ralph_device_id'] = ''
+        url = self.edit_obj_url(asset.id)
         response = self.client.post(url, edited_data, follow=True)
         self.assertEqual(response.status_code, 200)
         asset = models_assets.Asset.objects.get(pk=asset.id)
@@ -570,7 +569,7 @@ class TestDataCenterDevicesView(TestDevicesView, TestRegions, BaseViewsTest):
 
     def test_can_save_correct_region(self):
         valid_region = self.user.get_profile().get_regions()[0]
-        form_data = self.get_asset_form_data({'device_info': None})
+        form_data = self.get_asset_form_data()
         form_data.update({
             'ralph_device_id': '',
             'region': valid_region.id,
@@ -1907,14 +1906,12 @@ class TestAssetAndDeviceLinkage(TestDevicesView, BaseViewsTest):
 
     def _get_asset_with_dummy_device(self, asset_data=None):
         # set device_info=None to prevent creation of device
-        form_data = self.get_asset_form_data({
-            'device_info': None,
-            'region': Region.get_default_region(),
-        })
-        form_data['ralph_device_id'] = ''
-        form_data.update(asset_data or {})
-        asset = self.add_asset_by_form(form_data)
-        return asset
+        if asset_data is None:
+            asset_data = {}
+        if 'region' not in asset_data:
+            asset_data['region'] = Region.get_default_region()
+        form_data = self.get_asset_form_data(asset_data)
+        return self.add_asset_by_form(form_data)
 
     def test_asset_spares_existing_device_fields(self):
         """
@@ -1987,7 +1984,8 @@ class TestAssetAndDeviceLinkage(TestDevicesView, BaseViewsTest):
         - dummy device has values copied from edited asset
         """
         asset = DCAssetFactory(device_info=None)
-        form_data = self.get_asset_form_data({'device_info': None})
+        form_data = self.get_asset_form_data()
+        Device.objects.get(pk=form_data['ralph_device_id']).delete()
         form_data.update({
             'asset': '',
             'create_stock': 'true',
@@ -2062,9 +2060,9 @@ class TestAssetAndDeviceLinkage(TestDevicesView, BaseViewsTest):
         asset_with_device.barcode = 'changed-barcode'
         asset_with_device.save()
 
-        form_data = self.get_asset_form_data({'device_info': None})
+        device_info = DeviceInfoFactory(ralph_device_id=0)
+        form_data = self.get_asset_form_data({'device_info': device_info})
         form_data.update({
-            'ralph_device_id': '',
             'barcode': asset_with_device.get_ralph_device().barcode,
             'region': Region.get_default_region().id,
         })
@@ -2125,7 +2123,6 @@ class TestAssetAndDeviceLinkage(TestDevicesView, BaseViewsTest):
         first_asset.save()
 
         form_data = self.get_asset_form_data({
-            'device_info': None,
             'region': Region.get_default_region(),
         })
         form_data.update({
@@ -2333,3 +2330,45 @@ class TestLicenceConnection(BaseViewsTest):
         response = self.client.post(url, form_data)
         self.assertEqual(len(response.context_data['formset'].errors), 0)
         self.assertEqual(LicenceUser.objects.count(), 0)
+
+
+class TestManagementIp(TestDevicesView):
+    """Tests for management_ip editing."""
+
+    def test_edit_management_ip(self):
+        """Management_ip is editable via asset form."""
+        asset = DCAssetFactory()
+        url = reverse(
+            'device_edit', kwargs={'mode': 'dc', 'asset_id': asset.id}
+        )
+        data = self.get_object_form_data(
+            url, ['asset_form', 'additional_info']
+        )
+        data['management_ip_0'] = 'hostname.dc1'
+        data['management_ip_1'] = '1.1.1.1'
+        data['asset'] = ''
+        self.client.post(url, data)
+        asset = Asset.objects.get(pk=asset.pk)
+        self.assertEqual(
+            asset.get_ralph_device().management_ip.address,
+            '1.1.1.1',
+        )
+
+    def test_edit_management_for_dc(self):
+        """For DC assets we can edit management_ip."""
+        asset = DCAssetFactory()
+        url = reverse(
+            'device_edit', kwargs={'mode': 'dc', 'asset_id': asset.id}
+        )
+        response = self.client.get(url)
+        self.assertContains(response, 'management_ip')
+
+    def test_no_edit_management_ip_for_bo(self):
+        """For DC assets we can't edit management_ip."""
+        asset = BOAssetFactory()
+        url = reverse('device_edit', kwargs={
+            'mode': 'back_office',
+            'asset_id': asset.id,
+        })
+        response = self.client.get(url)
+        self.assertNotContains(response, 'management_ip')

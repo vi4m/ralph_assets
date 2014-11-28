@@ -41,9 +41,12 @@ from ralph_assets.models_assets import (
     CoaOemOs,
     DataCenter,
     DeviceInfo,
+    DataCenter,
     OfficeInfo,
+    Orientation,
     Rack,
     Service,
+    ServerRoom,
     Warehouse,
 )
 from ralph_assets.tests.utils import UserFactory
@@ -72,19 +75,6 @@ def generate_imei(n):
     part = ''.join(str(random.randrange(0, 9)) for _ in range(n - 1))
     res = luhn_residue('{}{}'.format(part, 0))
     return '{}{}'.format(part, -res % 10)
-
-
-class DataCenterFactory(DjangoModelFactory):
-    FACTORY_FOR = DataCenter
-
-    name = Sequence(lambda n: 'DataCenter #%s' % n)
-
-
-class RackFactory(DjangoModelFactory):
-    FACTORY_FOR = Rack
-
-    name = Sequence(lambda n: 'Rack #%s' % n)
-    data_center = SubFactory(DataCenterFactory)
 
 
 class CoaOemOsFactory(DjangoModelFactory):
@@ -168,12 +158,54 @@ class WarehouseFactory(DjangoModelFactory):
     name = Sequence(lambda n: 'Warehouse #%s' % n)
 
 
+class DataCenterFactory(DjangoModelFactory):
+    FACTORY_FOR = DataCenter
+
+    name = Sequence(lambda n: 'DataCenter #{}'.format(n))
+
+
+class ServerRoomFactory(DjangoModelFactory):
+    FACTORY_FOR = ServerRoom
+
+    name = Sequence(lambda n: 'Server #{}'.format(n))
+    data_center = SubFactory(DataCenterFactory)
+
+
+class RackFactory(DjangoModelFactory):
+    FACTORY_FOR = Rack
+
+    name = Sequence(lambda n: 'Rack #{}'.format(n))
+    data_center = SubFactory(DataCenterFactory)
+    server_room = SubFactory(ServerRoomFactory)
+
+
 class DeviceInfoFactory(DjangoModelFactory):
     FACTORY_FOR = DeviceInfo
 
     u_level = random.randint(0, 100)
     u_height = random.randint(0, 100)
     rack_old = Sequence(lambda n: 'Rack #%s' % n)
+
+    rack = SubFactory(RackFactory)
+    slot_no = fuzzy.FuzzyInteger(0, 100)
+    position = fuzzy.FuzzyInteger(1, 48)
+    orientation = Orientation.front.id
+
+    @factory.post_generation
+    def rack(self, create, extracted, **kwargs):
+        if not create:
+            # Simple build, do nothing.
+            return
+
+        if extracted:
+            self.rack = extracted
+        else:
+            server_room = ServerRoomFactory()
+            self.data_center = server_room.data_center
+            self.server_room = server_room
+            self.rack = RackFactory(
+                data_center=server_room.data_center, server_room=server_room,
+            )
 
 
 class BudgetInfoFactory(DjangoModelFactory):
@@ -309,3 +341,19 @@ class BOAssetFactory(BaseAssetFactory):
     type = AssetType.back_office
     hostname = Sequence(lambda n: 'XXXYY{:05}'.format(n))
     office_info = SubFactory(OfficeInfoFactory)
+
+
+def get_device_info_dict():
+    device_info = DeviceInfoFactory()
+    device_info_keys = {
+        'orientation', 'position', 'ralph_device_id', 'slot_no',
+    }
+    device_info_data = {
+        k: getattr(device_info, k) for k in device_info_keys
+    }
+    device_info_data.update({
+        'data_center': device_info.data_center.id,
+        'rack': device_info.rack.id,
+        'server_room': device_info.server_room.id,
+    })
+    return device_info_data

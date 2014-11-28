@@ -18,6 +18,13 @@ def _move_data(src, dst, fields):
     return src, dst
 
 
+def update_management_ip(asset, data):
+    """Update the management_ip of a given asset."""
+    management_ip = data.get('management_ip')
+    if management_ip:
+        asset.get_ralph_device().management_ip = management_ip
+
+
 @transaction.commit_on_success
 def _create_assets(creator_profile, asset_form, additional_form, mode):
     asset_data = {}
@@ -25,10 +32,10 @@ def _create_assets(creator_profile, asset_form, additional_form, mode):
         if f_name not in {
             "barcode", "category", "company", "cost_center",
             "department", "employee_id", "imei", "licences", "manager",
-            "sn", "profit_center", "supports", "segment",
+            "management_ip", "sn", "profit_center", "supports", "segment",
         }:
             asset_data[f_name] = f_value
-    force_unlink = additional_form.cleaned_data.get('force_unlink', None)
+    force_unlink = additional_form.cleaned_data.pop('force_unlink', None)
     sns = asset_form.cleaned_data.get('sn', [])
     barcodes = asset_form.cleaned_data.get('barcode', [])
     imeis = (
@@ -45,17 +52,10 @@ def _create_assets(creator_profile, asset_form, additional_form, mode):
         cleaned_additional_info = additional_form.cleaned_data
         if mode == 'dc':
             asset = Asset(created_by=creator_profile, **asset_data)
-            device_info = DeviceInfo()
-            for field in ['ralph_device_id', 'u_level', 'u_height']:
-                setattr(device_info, field, cleaned_additional_info[field])
-            device_info.save(
-                user=creator_profile.user,
-            )
+            device_info = DeviceInfo(**cleaned_additional_info)
+            device_info.save(user=creator_profile.user)
             asset.device_info = device_info
-            asset.save(
-                user=creator_profile.user,
-                force_unlink=cleaned_additional_info['force_unlink'],
-            )
+            asset.save(user=creator_profile.user, force_unlink=force_unlink)
         elif mode == 'back_office':
             _move_data(asset_data, cleaned_additional_info, ['purpose'])
             asset = Asset(created_by=creator_profile, **asset_data)
@@ -66,6 +66,7 @@ def _create_assets(creator_profile, asset_form, additional_form, mode):
             asset.office_info = office_info
             asset.save(user=creator_profile.user)
         asset.save(force_unlink=force_unlink)
+        update_management_ip(asset, asset_form.cleaned_data)
         assets_ids.append(asset.id)
     return assets_ids
 
@@ -123,6 +124,7 @@ def _update_asset(modifier_profile, asset, asset_updated_data):
         asset_updated_data['barcode'] = None
     asset_updated_data.update({'modified_by': modifier_profile})
     asset.__dict__.update(**asset_updated_data)
+    update_management_ip(asset, asset_updated_data)
     return asset
 
 
