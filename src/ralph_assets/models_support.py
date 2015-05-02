@@ -20,7 +20,7 @@ from lck.django.common.models import (
     TimeTrackable,
     WithConcurrentGetOrCreate,
 )
-from ralph.discovery.models_util import SavingUser
+from ralph_assets.models_util import SavingUser
 
 from ralph_assets import models_assets
 from ralph_assets.history.models import HistoryMixin

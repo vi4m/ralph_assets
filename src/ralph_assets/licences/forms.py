@@ -91,7 +91,7 @@ class LicenceForm(forms.ModelForm):
             ]),
             ('Financial info', [
                 'order_no', 'invoice_date', 'invoice_no', 'price', 'provider',
-                'number_bought', 'accounting_id', 'budget_info',
+                'number_bought', 'accounting_id', #'budget_info',
             ]),
         ])
         widgets = {
@@ -130,13 +130,14 @@ class LicenceForm(forms.ModelForm):
         ),
         required=False,
     )
-    budget_info = AutoCompleteSelectField(
-        LOOKUPS['budget_info'],
-        required=False,
-        plugin_options=dict(
-            add_link='/admin/ralph_assets/budgetinfo/add/',
-        )
-    )
+    # FIXME:
+    # budget_info = AutoCompleteSelectField(
+    #     LOOKUPS['budget_info'],
+    #     required=False,
+    #     plugin_options=dict(
+    #         add_link='/admin/ralph_assets/budgetinfo/add/',
+    #     )
+    # )
 
     def __init__(self, mode, *args, **kwargs):
         self.mode = mode
@@ -171,7 +172,7 @@ class AddLicenceForm(LicenceForm, MultivalFieldForm):
         fields = (
             'accounting_id',
             'asset_type',
-            'budget_info',
+            # 'budget_info',
             'invoice_date',
             'invoice_no',
             'licence_type',
@@ -228,14 +229,14 @@ class EditLicenceForm(ReadOnlyFieldsMixin, LicenceForm):
             ]),
             ('Financial info', [
                 'order_no', 'invoice_date', 'invoice_no', 'price', 'provider',
-                'number_bought', 'accounting_id', 'budget_info',
+                'number_bought', 'accounting_id', #'budget_info',
             ]),
         ])
 
         fields = (
             'accounting_id',
             'asset_type',
-            'budget_info',
+            # 'budget_info',
             'created',
             'invoice_date',
             'invoice_no',
@@ -288,9 +289,10 @@ class LicenceSearchForm(RegionSearchForm):
     invoice_date = DateRangeSearchField()
     order_no = ExactSearchField()
     order_date = DateRangeSearchField()
-    budget_info = AjaxTextSearch(
-        '__name', LOOKUPS['budget_info'], required=False,
-    )
+    # FIXME:
+    # budget_info = AjaxTextSearch(
+    #     '__name', LOOKUPS['budget_info'], required=False,
+    # )
     manufacturer = AjaxTextSearch(
         '__name', LOOKUPS['manufacturer'], required=False,
     )
@@ -321,7 +323,7 @@ class BulkEditLicenceForm(LicenceForm):
             'service_name',
             'sn',
             'remarks',
-            'budget_info',
+            # 'budget_info',
             'region',
         )
     sn = forms.CharField(label=_('Licence key'))

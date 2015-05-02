@@ -17,8 +17,8 @@ from django.contrib import messages
 from django.utils.translation import ugettext_lazy as _
 
 from ralph.util.reports import Report, set_progress
-from ralph.business.models import Venture
-from ralph.discovery.models_device import Device
+# from ralph.business.models import Venture
+# from ralph.discovery.models_device import Device
 from ralph_assets.forms import (
     BackOfficeSearchAssetForm,
     DataCenterSearchAssetForm,
@@ -65,7 +65,7 @@ class AssetsSearchQueryableMixin(object):
             'profit_center',
             'provider',
             'purpose',
-            'ralph_device_id',
+            # 'ralph_device_id',
             'region',
             'remarks',
             'required_support',
@@ -532,8 +532,8 @@ class AssetSearchDataTable(_AssetSearch, DataTableMixin):
               export=True),
             _('Inventory number', field='niw', foreign_field_name='',
               export=True),
-            _('Ralph ID', field='device_info',
-              foreign_field_name='ralph_device_id', export=True),
+            # _('Ralph ID', field='device_info',
+              # foreign_field_name='ralph_device_id', export=True),
             _('Type', field='type', export=True),
             _('Deprecation rate', field='deprecation_rate',
               foreign_field_name='', export=True),
@@ -687,12 +687,12 @@ class AssetSearchDataTable(_AssetSearch, DataTableMixin):
                     field='id',
                     export=True,
                 ),
-                _(
-                    'Ralph device id',
-                    field='ralph_device_id',
-                    foreign_field_name='device_info',
-                    export=True,
-                ),
+                # _(
+                    # 'Ralph device id',
+                    # field='ralph_device_id',
+                    # foreign_field_name='device_info',
+                    # export=True,
+                # ),
                 _(
                     'Rack',
                     field='rack_old',

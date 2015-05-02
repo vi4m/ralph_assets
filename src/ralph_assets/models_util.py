@@ -15,6 +15,30 @@ from lck.django.choices import Choices
 
 from ralph.account.models import Region
 from ralph import middleware
+from datetime import datetime
+from django.utils.translation import ugettext_lazy as _
+
+class LastSeen(models.Model):
+    last_seen = models.DateTimeField(verbose_name=_("last seen"),
+                                 default=datetime.now)
+
+    class Meta:
+        abstract = True
+
+    def save(self, update_last_seen=False, *args, **kwargs):
+        if update_last_seen:
+            self.last_seen = datetime.now()
+        super(LastSeen, self).save(*args, **kwargs)
+
+
+class SavingUser(models.Model):
+
+    class Meta:
+        abstract = True
+
+    def save(self, user=None, *args, **kwargs):
+        self.saving_user = user
+        return super(SavingUser, self).save(user=user, *args, **kwargs)
 
 
 class ProblemSeverity(Choices):

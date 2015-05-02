@@ -134,10 +134,41 @@ class AddDevice(HardwareModeMixin, SubmoduleModeMixin, AssetsBase):
         return super(AddDevice, self).get(*args, **kwargs)
 
 
+class EditDeviceComponents(HardwareModeMixin, SubmoduleModeMixin, AssetsBase):
+    template_name = 'assets/device_components.html'
+    sidebar_selected = 'edit device'
+    card = "components"
+
+    def get(self, *args, **kwargs):
+        self.initialize_vars(*args, **kwargs)
+        return super(EditDeviceComponents, self).get(*args, **kwargs)
+
+    def initialize_vars(self, *args, **kwargs):
+        self.asset = get_object_or_404(
+            Asset.objects,
+            id=kwargs.get('asset_id'),
+        )
+        self.parts = Asset.objects.filter(part_info__device=self.asset)
+        # self._set_additional_info_form()
+
+    def get_context_data(self, **kwargs):
+        context = super(EditDeviceComponents, self).get_context_data(**kwargs)
+        components = []
+        context.update({
+            'components': components,
+            'edit_mode': True,
+            'parts': self.parts,
+            'asset': self.asset,
+        })
+        return context
+
+
+
 class EditDevice(HardwareModeMixin, SubmoduleModeMixin, AssetsBase):
     detect_changes = True
     template_name = 'assets/edit_device.html'
     sidebar_selected = 'edit device'
+    card = "base"
 
     def initialize_vars(self, *args, **kwargs):
         self.asset = get_object_or_404(

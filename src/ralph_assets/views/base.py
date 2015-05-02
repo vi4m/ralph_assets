@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+# -*-   oding: utf-8 -*-
 
 from __future__ import absolute_import
 from __future__ import division
@@ -21,7 +21,7 @@ from django.http import HttpResponse, HttpResponseBadRequest
 from django.utils.translation import ugettext_lazy as _
 from django.views.generic import TemplateView
 
-from ralph.discovery.models_device import Device
+# from ralph.discovery.models_device import Device
 from ralph.ui.views.common import MenuMixin
 from ralph.account.models import Perm, ralph_permission
 from ralph_assets import forms as assets_forms
@@ -80,9 +80,11 @@ class AssetsBase(ACLGateway, MenuMixin, TemplateView):
             'details': self.kwargs.get('details', 'info'),
             'mode': self.mode,
             'multivalues_fields': ['sn', 'barcode', 'imei'],
-            'search_url': reverse('search', args=[
-                self.kwargs.get('details', 'info'), ''
-            ]),
+            'search_url': ''
+            # FIXME:
+            # reverse('search', args=[
+            #     self.kwargs.get('details', 'info'), ''
+            # ]),
         })
         return context
 
@@ -100,9 +102,9 @@ class AssetsBase(ACLGateway, MenuMixin, TemplateView):
         Checks if barcodes used in asset form are already linked to any assets.
         """
         if barcodes:
-            found = Device.objects.filter(barcode__in=barcodes).all()
+            # found = Device.objects.filter(barcode__in=barcodes).all()
             found = Asset.objects.filter(
-                device_info__ralph_device_id__in=found,
+                barcode__in=barcodes,
             ).all()
         else:
             found = []

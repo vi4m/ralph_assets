@@ -37,6 +37,27 @@ class AssetMenu(Menu):
                 name='hardware',
             ),
             MenuItem(
+                fugue_icon='fugue-computer',
+                view_name='asset_search',
+                view_kwargs={'mode': self.mode},
+                label=_('Virtuals'),
+                name='hardware',
+            ),
+            MenuItem(
+                fugue_icon='fugue-computer',
+                view_name='asset_search',
+                view_kwargs={'mode': self.mode},
+                label=_('Cloud'),
+                name='hardware',
+            ),
+            MenuItem(
+                fugue_icon='fugue-computer',
+                view_name='asset_search',
+                view_kwargs={'mode': self.mode},
+                label=_('DB'),
+                name='hardware',
+            ),
+            MenuItem(
                 fugue_icon='fugue-lifebuoy',
                 view_name='support_list',
                 label=_('Supports'),
@@ -81,13 +102,25 @@ class AssetMenu(Menu):
                 'label': _('Add device'),
                 'view_name': 'add_device',
                 'view_kwargs': {'mode': 'dc'},
-                'fugue_icon': 'fugue-block--plus',
+                'fugue_icon': 'fugue-computer--plus',
             },
             {
                 'label': _('Add part'),
                 'view_name': 'add_part',
                 'view_kwargs': {'mode': 'dc'},
-                'fugue_icon': 'fugue-block--plus',
+                'fugue_icon': 'fugue-disk--plus',
+            },
+            {
+                'label': _('Racks list'),
+                'view_name': '',
+                'view_kwargs': {'mode': 'dc'},
+                'fugue_icon': 'fugue-server',
+            },
+            {
+                'label': _('Data Center View'),
+                'view_name': '',
+                'view_kwargs': {'mode': 'dc'},
+                'fugue_icon': 'fugue-television-test',
             },
         ]
         hardware_bo = [

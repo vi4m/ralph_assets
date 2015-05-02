@@ -48,9 +48,11 @@ def _move_data(src, dst, fields):
 def update_management_ip(asset, data):
     """Update the management_ip of a given asset."""
     management_ip = data.get('management_ip')
-    ralph_device = asset.get_ralph_device()
-    if management_ip and ralph_device:
-        ralph_device.management_ip = management_ip
+    asset.management_ip = management_ip
+
+    # ralph_device = asset.get_ralph_device()
+    # if management_ip and ralph_device:
+        # ralph_device.management_ip = management_ip
 
 
 @transaction.commit_on_success

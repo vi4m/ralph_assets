@@ -16,7 +16,7 @@ from django.http import Http404
 from django.utils.translation import ugettext_lazy as _
 
 from ralph.util.reports import Report
-from ralph.discovery.models_device import Device
+# from ralph.discovery.models_device import Device
 from ralph_assets.views.base import AssetsBase
 from ralph_assets.others import get_assets_rows, get_licences_rows
 from ralph_assets.models_assets import (

@@ -26,7 +26,7 @@ from django.template.defaultfilters import slugify
 from django.utils.dateparse import parse_date, parse_datetime
 from lck.django.common.models import Named
 from ralph.account.models import Region
-from ralph.discovery.models_device import DeviceEnvironment, ServiceCatalog
+from ralph.cmdb.models_ci import DeviceEnvironment, ServiceCatalog
 
 from ralph_assets.forms_import import (
     ColumnChoiceField,

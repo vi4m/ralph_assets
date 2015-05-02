@@ -15,28 +15,31 @@ from django.utils.translation import ugettext_lazy as _
 from django.db import connection
 from django.db.models import Q
 
-from ralph.business.models import Department
+from ralph.business.models import Department, PuppetVenture, PuppetVentureRole
 from ralph.middleware import get_actual_regions
-from ralph_assets.models_assets import (
-    Asset,
-    AssetCategory,
-    AssetCategoryType,
-    AssetManufacturer,
-    AssetModel,
-    AssetOwner,
-    AssetSource,
-    AssetStatus,
-    AssetType,
-    CoaOemOs,
-    DeviceInfo,
-    OfficeInfo,
-    Orientation,
-    PartInfo,
-    ReportOdtSource,
-    ReportOdtSourceLanguage,
-    Service,
-    Warehouse,
-)
+from ralph_assets.models_assets import *
+# (
+#     Asset,
+#     AssetCategory,
+#     AssetCategoryType,
+#     AssetManufacturer,
+#     AssetModel,
+#     AssetOwner,
+#     AssetSource,
+#     AssetStatus,
+#     AssetType,
+#     CoaOemOs,
+#     DeviceInfo,
+#     OfficeInfo,
+#     Orientation,
+#     PartInfo,
+#     ReportOdtSource,
+#     ReportOdtSourceLanguage,
+#     Service,
+#     Warehouse,
+#     BudgetInfo,
+#     Ethernet, EthernetSpeed
+# )
 from ralph_assets.licences.models import (
     Licence,
     LicenceType,
@@ -48,12 +51,95 @@ from ralph_assets.models_transition import (
     Transition,
     TransitionsHistory,
 )
-from ralph.ui.channels import RestrictedLookupChannel
 from ralph_assets.models_dc_assets import ServerRoom, Rack
-from ralph.discovery.models import Device, DeviceType
 
 
 RALPH_DATE_FORMAT = '%Y-%m-%d'
+
+from django.core.exceptions import PermissionDenied
+
+from ajax_select import LookupChannel
+from django.db import models as db
+from django.utils.html import escape
+
+#from ralph.util import presentation
+from ralph_assets.models_assets import ServiceCatalog, DeviceEnvironment
+
+
+class RestrictedLookupChannel(LookupChannel):
+    """
+    Base lookup returning results only if request user is authenticated.
+    """
+    def check_auth(self, request):
+        """
+        Write restriction rules here.
+        """
+        if not request.user.is_authenticated():
+            raise PermissionDenied
+
+    def get_query(self, text, request):
+        founds = self.model.objects.filter(
+            name__icontains=text
+        ).order_by('name')[:10]
+        return founds
+
+    def get_result(self, obj):
+        return obj.name
+
+    def get_item_url(self, obj):
+        return getattr(obj, 'url', None)
+
+    def format_match(self, obj):
+        return self.format_item_display(obj)
+
+    def format_item_display(self, obj):
+        return '{}'.format(escape(unicode(obj.name)))
+
+    def get_base_objects(self):
+        return self.model.objects
+
+
+class ServiceCatalogLookup(RestrictedLookupChannel):
+    model = ServiceCatalog
+    #model = DeviceEnvironment
+
+
+class DeviceEnvironmentLookup(RestrictedLookupChannel):
+    model = DeviceEnvironment
+
+    def get_query(self, query, request):
+        try:
+            service = ServiceCatalog.objects.get(id=query)
+        except ServiceCatalog.DoesNotExist:
+            envs = ServiceCatalog.objects.none()
+        else:
+            envs = service.get_environments()
+        return envs
+
+
+class BudgetInfoLookup(RestrictedLookupChannel):
+    model = BudgetInfo
+
+    def get_query(self, q, request):
+        return BudgetInfo.objects.filter(
+            name__icontains=q,
+        ).order_by('name')[:10]
+
+    def format_item_display(self, obj):
+        return "<span>{name}</span>".format(name=obj.name)
+
+
+class SoftwareCategoryLookup(RestrictedLookupChannel):
+    model = SoftwareCategory
+
+    def get_query(self, q, request):
+        return SoftwareCategory.objects.filter(
+            name__icontains=q
+        ).order_by('name')[:10]
+
+
+class VentureLookup(RestrictedLookupChannel):
+    model = PuppetVenture
 
 
 class ServerRoomLookup(RestrictedLookupChannel):
@@ -249,35 +335,6 @@ class SupportLookup(RestrictedLookupChannel):
             name=escape(obj.name),
             expired=_('expired'),
             end=obj.get_natural_end_support(),
-        )
-
-
-class RalphDeviceLookup(RestrictedLookupChannel):
-    model = Device
-
-    def get_query(self, q, request):
-        query = Q(
-            Q(
-                Q(barcode__istartswith=q) |
-                Q(id__istartswith=q) |
-                Q(sn__istartswith=q) |
-                Q(model__name__icontains=q)
-            )
-        )
-        return Device.objects.filter(query).order_by('sn')[:10]
-
-    def get_result(self, obj):
-        return obj.id
-
-    def format_item_display(self, obj):
-        return """
-        <span class="asset-model">{model}</span>
-        <span class="asset-barcode">{barcode}</span>
-        <span class="asset-sn">{sn}</span>
-        """.format(
-            model=escape(obj.model),
-            barcode=escape(obj.barcode or ''),
-            sn=escape(obj.sn),
         )
 
 
@@ -526,6 +583,7 @@ __all__ = [
     'Transition',
     'TransitionsHistory',
     'Warehouse',
+    'Ethernet'
 ]
 
 # Load signals (hook - don't remove it)

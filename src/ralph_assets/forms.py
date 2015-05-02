@@ -58,7 +58,8 @@ from ralph_assets.models import (
 from ralph_assets.models_dc_assets import DataCenter, ServerRoom, Rack
 from ralph_assets import models_assets
 from ralph_assets.signals import post_customize_fields
-from ralph.discovery import models_device
+# FIXME:
+#from ralph.discovery import models_device
 from ralph.middleware import get_actual_regions
 from ralph.ui.widgets import DateWidget, ReadOnlyWidget, SimpleReadOnlyWidget
 from ralph.ui.forms.addresses import IPWithHostField
@@ -81,7 +82,8 @@ def asset_fieldset():
             'order_no', 'invoice_date', 'invoice_no', 'price', 'provider',
             'deprecation_rate', 'source', 'request_date',
             'provider_order_date', 'delivery_date', 'deprecation_end_date',
-            'budget_info', 'force_deprecation',
+            # FIXME: budget_info
+             'force_deprecation',
         ]),
         ('User Info', [
             'user', 'owner', 'employee_id', 'company', 'department', 'manager',
@@ -114,7 +116,7 @@ def asset_search_back_office_fieldsets():
         ('Financial data', {
             'noncollapsed': [
                 'invoice_no', 'invoice_date_from', 'invoice_date_to',
-                'order_no', 'budget_info',
+                'order_no', #'budget_info',
             ],
             'collapsed': [
                 'provider', 'source', 'ralph_device_id', 'request_date_from',
@@ -151,7 +153,7 @@ def asset_search_dc_fieldsets():
         ('Financial data', {
             'noncollapsed': [
                 'invoice_no', 'invoice_date_from', 'invoice_date_to',
-                'order_no', 'budget_info',
+                'order_no', #'budget_info',
             ],
             'collapsed': [
                 'provider', 'source', 'ralph_device_id', 'request_date_from',
@@ -172,13 +174,14 @@ LOOKUPS = {
     'asset_model': ('ralph_assets.models', 'AssetModelLookup'),
     'asset_user': ('ralph_assets.models', 'UserLookup'),
     'asset_warehouse': ('ralph_assets.models', 'WarehouseLookup'),
-    'budget_info': ('ralph_assets.licences.models', 'BudgetInfoLookup'),
+# FIXME:
+#    'budget_info': ('ralph_assets.licences.models', 'BudgetInfoLookup'),
     'device_environment': ('ralph.ui.channels', 'DeviceEnvironmentLookup'),
     'free_licences': ('ralph_assets.models', 'FreeLicenceLookup'),
     'licence': ('ralph_assets.models', 'LicenceLookup'),
     'linked_device': ('ralph_assets.models', 'LinkedDeviceNameLookup'),
     'manufacturer': ('ralph_assets.models', 'ManufacturerLookup'),
-    'ralph_device': ('ralph_assets.models', 'RalphDeviceLookup'),
+    # 'ralph_device': ('ralph_assets.models', 'RalphDeviceLookup'),
     'service': ('ralph.ui.channels', 'ServiceCatalogLookup'),
     'softwarecategory': ('ralph_assets.models', 'SoftwareCategoryLookup'),
     'support': ('ralph_assets.models', 'SupportLookup'),
@@ -564,14 +567,14 @@ class DeviceForm(ModelForm):
             'orientation',
             'position',
             'slot_no',
-            'ralph_device_id',
+            # 'ralph_device_id',
         )
 
     force_unlink = BooleanField(required=False, label=_('Force unlink'))
-    create_stock = BooleanField(
-        required=False,
-        label=_('Create stock device'),
-    )
+    # create_stock = BooleanField(
+    #     required=False,
+    #     label=_('Create stock device'),
+    # )
 
     data_center = ModelChoiceField(
         label=_('data center'),
@@ -602,68 +605,68 @@ class DeviceForm(ModelForm):
         exclude = kwargs.pop('exclude', None)
         super(DeviceForm, self).__init__(*args, **kwargs)
 
-        self.fields['ralph_device_id'] = AutoCompleteSelectField(
-            LOOKUPS['ralph_device'],
-            required=False,
-            help_text=_('Enter ralph id, barcode, sn, or model.'),
-        )
-        if exclude == 'create_stock':
-            del self.fields['create_stock']
+        # self.fields['ralph_device_id'] = AutoCompleteSelectField(
+        #     LOOKUPS['ralph_device'],
+        #     required=False,
+        #     help_text=_('Enter ralph id, barcode, sn, or model.'),
+        # )
+        # if exclude == 'create_stock':
+            # del self.fields['create_stock']
 
-    def clean_ralph_device_id(self):
-        return self.data['ralph_device_id'] or None
+    # def clean_ralph_device_id(self):
+        # return self.data['ralph_device_id'] or None
 
-    def clean_create_stock(self):
-        create_stock = self.cleaned_data.get('create_stock', False)
-        if create_stock:
-            if not self.cleaned_data.get('ralph_device_id'):
-                return create_stock
-            else:
-                raise ValidationError(
-                    _("'Ralph device id' field should be blank")
-                )
-        else:
-            return create_stock
+    # def clean_create_stock(self):
+    #     create_stock = self.cleaned_data.get('create_stock', False)
+    #     if create_stock:
+    #         if not self.cleaned_data.get('ralph_device_id'):
+    #             return create_stock
+    #         else:
+    #             raise ValidationError(
+    #                 _("'Ralph device id' field should be blank")
+    #             )
+    #     else:
+    #         return create_stock
 
     def clean(self):
-        """Check if device selected in this form (represented by
-        'ralph_device_id') is already assigned/linked to another asset.
-        If yes, the 'force_unlink' box should be ticked (causing that other
-        asset to unlink) , otherwise an error should be reported.
-        Obviously, the case when a given device is already assigned/linked
-        to the asset being actually edited should be excluded - hence
-        "int(ralph_device_id) != instance_ralph_device_id".
-        """
-        ralph_device_id = self.cleaned_data.get('ralph_device_id')
-        force_unlink = self.cleaned_data.get('force_unlink')
-        instance_ralph_device_id = getattr(self.instance, 'ralph_device_id',
-                                           None)
-        if (ralph_device_id and
-                int(ralph_device_id) != instance_ralph_device_id):
-            try:
-                asset = Asset.objects_dc.get(
-                    device_info__ralph_device_id=ralph_device_id
-                )
-            except Asset.DoesNotExist:
-                pass
-            else:
-                if force_unlink:
-                    asset.device_info.ralph_device_id = None
-                    asset.device_info.save()
-                else:
-                    linked_asset_url = reverse(
-                        'device_edit',
-                        kwargs={'mode': 'dc', 'asset_id': asset.id},
-                    )
-                    msg = _(
-                        'This device is already linked to another asset '
-                        '<a href="{}">(click here to see it)</a>. '
-                        'Please tick "Force unlink" checkbox if you want '
-                        'to unlink it.'
-                    )
-                    self._errors["ralph_device_id"] = self.error_class([
-                        mark_safe(msg.format(escape(linked_asset_url)))
-                    ])
+        # """Check if device selected in this form (represented by
+        # 'ralph_device_id') is already assigned/linked to another asset.
+        # If yes, the 'force_unlink' box should be ticked (causing that other
+        # asset to unlink) , otherwise an error should be reported.
+        # Obviously, the case when a given device is already assigned/linked
+        # to the asset being actually edited should be excluded - hence
+        # "int(ralph_device_id) != instance_ralph_device_id".
+        # """
+        # ralph_device_id = self.cleaned_data.get('ralph_device_id')
+        # force_unlink = self.cleaned_data.get('force_unlink')
+        # instance_ralph_device_id = getattr(self.instance, 'ralph_device_id',
+        #                                    None)
+        # if (ralph_device_id and
+        #         int(ralph_device_id) != instance_ralph_device_id):
+        #     try:
+        #         asset = Asset.objects_dc.get(
+        #             device_info__ralph_device_id=ralph_device_id
+        #         )
+        #     except Asset.DoesNotExist:
+        #         pass
+        #     else:
+        #         if force_unlink:
+        #             asset.device_info.ralph_device_id = None
+        #             asset.device_info.save()
+        #         else:
+        #             linked_asset_url = reverse(
+        #                 'device_edit',
+        #                 kwargs={'mode': 'dc', 'asset_id': asset.id},
+        #             )
+        #             msg = _(
+        #                 'This device is already linked to another asset '
+        #                 '<a href="{}">(click here to see it)</a>. '
+        #                 'Please tick "Force unlink" checkbox if you want '
+        #                 'to unlink it.'
+        #             )
+        #             self._errors["ralph_device_id"] = self.error_class([
+        #                 mark_safe(msg.format(escape(linked_asset_url)))
+        #             ])
         return self.cleaned_data
 
 
@@ -840,12 +843,12 @@ class BaseAssetForm(ModelForm):
         if self.edit_management_ip:
             self.fields['management_ip'] = IPWithHostField(required=False)
             self.fieldsets['Basic Info'].append('management_ip')
-            if instance and self.edit_management_ip:
-                device = instance.get_ralph_device()
-                if device:
-                    management_ip = device.management_ip
-                    self.fields['management_ip'].initial =\
-                        management_ip and management_ip.as_tuple()
+            # if instance and self.edit_management_ip:
+                # device = instance.get_ralph_device()
+                # if device:
+                    # management_ip = device.management_ip
+                    # self.fields['management_ip'].initial =\
+                        # management_ip and management_ip.as_tuple()
 
     class Meta:
         model = Asset
@@ -896,7 +899,7 @@ class BaseAddAssetForm(DependencyAssetForm, BaseAssetForm):
     class Meta:
         model = Asset
         fields = (
-            'budget_info',
+           # 'budget_info',
             'company',
             'cost_center',
             'delivery_date',
@@ -1012,13 +1015,14 @@ class BaseAddAssetForm(DependencyAssetForm, BaseAssetForm):
         LOOKUPS['support'],
         required=False,
     )
-    budget_info = AutoCompleteSelectField(
-        LOOKUPS['budget_info'],
-        required=False,
-        plugin_options=dict(
-            add_link='/admin/ralph_assets/budgetinfo/add/',
-        )
-    )
+    # FIXME:
+    # budget_info = AutoCompleteSelectField(
+    #     LOOKUPS['budget_info'],
+    #     required=False,
+    #     plugin_options=dict(
+    #         add_link='/admin/ralph_assets/budgetinfo/add/',
+    #     )
+    # )
 
     def __init__(self, *args, **kwargs):
         self.fieldsets = asset_fieldset()
@@ -1062,7 +1066,7 @@ class BaseEditAssetForm(DependencyAssetForm, BaseAssetForm):
         model = Asset
         fields = (
             'barcode',
-            'budget_info',
+            #'budget_info',
             'company',
             'cost_center',
             'deleted',
@@ -1186,13 +1190,14 @@ class BaseEditAssetForm(DependencyAssetForm, BaseAssetForm):
         required=False,
         help_text=_('Type support\'s "name" or "contract id"'),
     )
-    budget_info = AutoCompleteSelectField(
-        LOOKUPS['budget_info'],
-        required=False,
-        plugin_options=dict(
-            add_link='/admin/ralph_assets/budgetinfo/add/',
-        )
-    )
+    # FIXME:
+    # budget_info = AutoCompleteSelectField(
+    #     LOOKUPS['budget_info'],
+    #     required=False,
+    #     plugin_options=dict(
+    #         add_link='/admin/ralph_assets/budgetinfo/add/',
+    #     )
+    # )
 
     def __init__(self, *args, **kwargs):
         self.fieldsets = asset_fieldset()
@@ -1309,12 +1314,12 @@ class BackOfficeAddDeviceForm(AddDeviceForm):
         fields = BaseAddAssetForm.Meta.fields + (
             'device_environment', 'service', 'segment',
         )
-
-    device_environment = ModelChoiceField(
-        required=False,
-        queryset=models_device.DeviceEnvironment.objects.all(),
-        label=_('Environment'),
-    )
+    # FIXME:
+    # device_environment = ModelChoiceField(
+    #     required=False,
+    #     queryset=models_device.DeviceEnvironment.objects.all(),
+    #     label=_('Environment'),
+    # )
     purpose = ChoiceField(
         choices=[('', '----')] + models_assets.AssetPurpose(),
         label=_('Purpose'),
@@ -1353,11 +1358,12 @@ class DataCenterAddDeviceForm(AddDeviceForm):
         fields = BaseAddAssetForm.Meta.fields + (
             'device_environment', 'service',
         )
-    device_environment = ModelChoiceField(
-        required=True,
-        queryset=models_device.DeviceEnvironment.objects.all(),
-        label=_('Environment'),
-    )
+    # FIXME: ?
+    # device_environment = ModelChoiceField(
+    #     required=True,
+    #     queryset=models_device.DeviceEnvironment.objects.all(),
+    #     label=_('Environment'),
+    # )
     service = AutoCompleteSelectField(
         LOOKUPS['service'],
         required=True,
@@ -1445,7 +1451,7 @@ class BackOfficeEditDeviceForm(ReadOnlyFieldsMixin, EditDeviceForm):
             'order_no', 'invoice_date', 'invoice_no', 'price', 'provider',
             'deprecation_rate', 'source', 'request_date',
             'provider_order_date', 'delivery_date',
-            'deprecation_end_date', 'budget_info', 'force_deprecation',
+            'deprecation_end_date', 'force_deprecation', #'budget_info'
         ]),
         ('User Info', [
             'user', 'owner', 'employee_id', 'company', 'department', 'manager',
@@ -1466,12 +1472,12 @@ class BackOfficeEditDeviceForm(ReadOnlyFieldsMixin, EditDeviceForm):
             'device_environment', 'hostname', 'service', 'created',
             'hostname', 'created', 'segment',
         )
-
-    device_environment = ModelChoiceField(
-        required=False,
-        queryset=models_device.DeviceEnvironment.objects.all(),
-        label=_('Environment'),
-    )
+    # FIXME:
+    # device_environment = ModelChoiceField(
+    #     required=False,
+    #     queryset=models_device.DeviceEnvironment.objects.all(),
+    #     label=_('Environment'),
+    # )
     purpose = ChoiceField(
         choices=[('', '----')] + models_assets.AssetPurpose(),
         label=_('Purpose'),
@@ -1510,7 +1516,7 @@ class DataCenterEditDeviceForm(ReadOnlyFieldsMixin, EditDeviceForm):
             'order_no', 'invoice_date', 'invoice_no', 'price', 'provider',
             'deprecation_rate', 'source', 'request_date',
             'provider_order_date', 'delivery_date', 'deprecation_end_date',
-            'budget_info', 'force_deprecation',
+            'force_deprecation', #'budget_info'
         ]),
         ('User Info', [
             'user', 'owner', 'employee_id', 'company', 'department', 'manager',
@@ -1532,12 +1538,12 @@ class DataCenterEditDeviceForm(ReadOnlyFieldsMixin, EditDeviceForm):
         fields = BaseEditAssetForm.Meta.fields + (
             'device_environment', 'service', 'hostname',
         )
-
-    device_environment = ModelChoiceField(
-        required=True,
-        queryset=models_device.DeviceEnvironment.objects.all(),
-        label=_('Environment'),
-    )
+    # FIXME:
+    # device_environment = ModelChoiceField(
+    #     required=True,
+    #     queryset=models_device.DeviceEnvironment.objects.all(),
+    #     label=_('Environment'),
+    # )
     service = AutoCompleteSelectField(
         LOOKUPS['service'],
         required=True,
@@ -1753,9 +1759,10 @@ class SearchAssetForm(Form):
         required=False,
         label=_('Additional remarks'),
     )
-    budget_info = AutoCompleteField(
-        LOOKUPS['budget_info'], required=False,
-    )
+    # FIXME:
+    # budget_info = AutoCompleteField(
+    #     LOOKUPS['budget_info'], required=False,
+    # )
     required_support = ChoiceField(
         required=False,
         choices=[('', '----'), ('yes', 'yes'), ('no', 'no')],
