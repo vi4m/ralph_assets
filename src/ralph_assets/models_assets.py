@@ -74,6 +74,8 @@ from lck.django.common.models import (
 )
 from lck.django.choices import Choices
 from django.utils.html import escape
+from polymorphic import PolymorphicModel
+
 
 
 logger = logging.getLogger(__name__)
@@ -397,34 +399,34 @@ def _get_file_path(instance, filename):
     return os.path.join('assets', filename)
 
 
-class BOAdminManager(models.Manager):
-    def get_query_set(self):
-        return super(BOAdminManager, self).get_query_set().filter(
-            type__in=(AssetType.BO.choices)
-        )
+# class BOAdminManager(models.Manager):
+#     def get_query_set(self):
+#         return super(BOAdminManager, self).get_query_set().filter(
+#             type__in=(AssetType.BO.choices)
+#         )
 
 
-class DCAdminManager(models.Manager):
-    def get_query_set(self):
-        return super(DCAdminManager, self).get_query_set().filter(
-            type__in=(AssetType.DC.choices)
-        )
+# class DCAdminManager(models.Manager):
+#     def get_query_set(self):
+#         return super(DCAdminManager, self).get_query_set().filter(
+#             type__in=(AssetType.DC.choices)
+#         )
 
 
 class AssetAdminManager(RegionalizedDBManager):
     pass
 
 
-class BOManager(
-    BOAdminManager, ViewableSoftDeletableManager, RegionalizedDBManager
-):
-    pass
+# class BOManager(
+#     BOAdminManager, ViewableSoftDeletableManager, RegionalizedDBManager
+# ):
+#     pass
 
 
-class DCManager(
-    DCAdminManager, ViewableSoftDeletableManager, RegionalizedDBManager
-):
-    pass
+# class DCManager(
+#     DCAdminManager, ViewableSoftDeletableManager, RegionalizedDBManager
+# ):
+#     pass
 
 
 class Attachment(SavingUser, TimeTrackable):
@@ -516,13 +518,13 @@ class Gap(object):
     def get_absolute_url(self):
         return ''
 
-    @property
-    def device_info(self):
-        return namedtuple('DeviceInfo', [
-            'slot_no', 'get_orientation_desc'
-        ])(
-            self.slot_no, None, lambda: self.orientation
-        )
+    # @property
+    # def device_info(self):
+    #     return namedtuple('DeviceInfo', [
+    #         'slot_no', 'get_orientation_desc'
+    #     ])(
+    #         self.slot_no, None, lambda: self.orientation
+    #     )
 
     @classmethod
     def generate_gaps(cls, items):
@@ -553,103 +555,6 @@ class Gap(object):
         return items
 
 
-
-class DeviceInfo(HistoryMixin, TimeTrackable, SavingUser, SoftDeletable):
-    ralph_device_id = models.IntegerField(
-        verbose_name=_("Ralph device id"),
-        null=True,
-        blank=True,
-        unique=True,
-        default=None,
-    )
-    u_level = models.CharField(max_length=10, null=True, blank=True)
-    u_height = models.CharField(max_length=10, null=True, blank=True)
-    data_center = models.ForeignKey(DataCenter, null=True, blank=False)
-    server_room = models.ForeignKey(ServerRoom, null=True, blank=False)
-    rack = models.ForeignKey(Rack, null=True, blank=True)
-    # deperecated field, use rack instead
-    rack_old = models.CharField(max_length=10, null=True, blank=True)
-    slot_no = models.CharField(
-        verbose_name=_("slot number"), max_length=3, null=True, blank=True,
-        help_text=_('Fill it if asset is blade server'),
-    )
-    position = models.IntegerField(null=True)
-    orientation = models.PositiveIntegerField(
-        choices=Orientation(),
-        default=Orientation.front.id,
-    )
-
-    def clean_fields(self, exclude=None):
-        """
-        Constraints:
-        - picked rack is from picked server-room
-        - picked server-room is from picked data-center
-        - postion = 0: orientation(left, right)
-        - postion > 0: orientation(front, middle, back)
-        - position <= rack.max_u_height
-        - slot_no: asset is_blade=True
-        """
-        if self.rack and self.server_room:
-            if self.rack.server_room != self.server_room:
-                msg = 'This rack is not from picked server room'
-                raise ValidationError({'rack': [msg]})
-        if self.server_room and self.data_center:
-            if self.server_room.data_center != self.data_center:
-                msg = 'This server room is not from picked data center'
-                raise ValidationError({'server_room': [msg]})
-        if self.position == 0 and not Orientation.is_width(self.orientation):
-            msg = 'Valid orientations for picked position are: {}'.format(
-                ', '.join(
-                    choice.desc for choice in Orientation.WIDTH.choices
-                )
-            )
-            raise ValidationError({'orientation': [msg]})
-        if self.position > 0 and not Orientation.is_depth(self.orientation):
-            msg = 'Valid orientations for picked position are: {}'.format(
-                ', '.join(
-                    choice.desc for choice in Orientation.DEPTH.choices
-                )
-            )
-            raise ValidationError({'orientation': [msg]})
-        if self.rack and self.position > self.rack.max_u_height:
-            msg = 'Position is higher than "max u height" = {}'.format(
-                self.rack.max_u_height,
-            )
-            raise ValidationError({'position': [msg]})
-        if self.slot_no and not VALID_SLOT_NUMBER_FORMAT.search(self.slot_no):
-            msg = ("Slot number should be a number from range 1-16 with "
-                   "an optional postfix 'A' or 'B' (e.g. '16A')")
-            raise ValidationError({'slot_no': [msg]})
-
-    @property
-    def size(self):
-        """Deprecated. Kept for backwards compatibility."""
-        return 0
-
-    def __unicode__(self):
-        return "{} - {}".format(
-            self.ralph_device_id,
-            self.size,
-        )
-
-    def get_ralph_device(self):
-        if not self.ralph_device_id:
-            return None
-        try:
-            dev = Device.objects.get(id=self.ralph_device_id)
-            return dev
-        except Device.DoesNotExist:
-            return None
-
-    def get_orientation_desc(self):
-        return Orientation.name_from_id(self.orientation)
-
-    def __init__(self, *args, **kwargs):
-        self.save_comment = None
-        self.saving_user = None
-        super(DeviceInfo, self).__init__(*args, **kwargs)
-
-
 class Asset(
     AttachmentMixin,
     Regionalized,
@@ -658,21 +563,22 @@ class Asset(
     EditorTrackable,
     SavingUser,
     SoftDeletable,
-    LastSeen
+    LastSeen,
+    PolymorphicModel
 ):
     '''
     Asset model contain fields with basic information about single asset
     '''
-    device_info = models.OneToOneField(
-        'DeviceInfo', null=True, blank=True, on_delete=models.CASCADE,
-    )
-    part_info = models.OneToOneField(
-        'PartInfo', null=True, blank=True, on_delete=models.CASCADE,
-    )
-    office_info = models.OneToOneField(
-        'OfficeInfo', null=True, blank=True, on_delete=models.CASCADE,
-    )
-    type = models.PositiveSmallIntegerField(choices=AssetType())
+    # device_info = models.OneToOneField(
+        # 'DeviceInfo', null=True, blank=True, on_delete=models.CASCADE,
+    # )
+    # part_info = models.OneToOneField(
+        # 'PartInfo', null=True, blank=True, on_delete=models.CASCADE,
+    # )
+    # office_info = models.OneToOneField(
+        # 'OfficeInfo', null=True, blank=True, on_delete=models.CASCADE,
+    # )
+    # type = models.PositiveSmallIntegerField(choices=AssetType())
     model = models.ForeignKey(
         'AssetModel', on_delete=models.PROTECT, related_name='assets',
     )
@@ -752,10 +658,10 @@ class Asset(
     )
     service_name = models.ForeignKey(Service, null=True, blank=True)
     admin_objects = AssetAdminManager()
-    admin_objects_dc = DCAdminManager()
-    admin_objects_bo = BOAdminManager()
-    objects_dc = DCManager()
-    objects_bo = BOManager()
+    # admin_objects_dc = DCAdminManager()
+    # admin_objects_bo = BOAdminManager()
+    # objects_dc = DCManager()
+    # objects_bo = BOManager()
     task_url = models.URLField(
         max_length=2048, null=True, blank=True, unique=False,
         help_text=('External workflow system URL'),
@@ -815,87 +721,6 @@ class Asset(
         on_delete=models.PROTECT,
     )
 
-    # Ralph 3.0 --  new fields
-
-    parent = models.ForeignKey(
-        'self',
-        verbose_name=_("physical parent device"),
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        default=None,
-        related_name="child_set",
-    )
-    logical_parent = models.ForeignKey(
-        'self',
-        verbose_name=_("logical parent device"),
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        default=None,
-        related_name="logicalchild_set",
-    )
-    connections = models.ManyToManyField(
-        'Asset',
-        through='Connection',
-        symmetrical=False,
-    )
-    boot_firmware = models.CharField(
-        verbose_name=_("boot firmware"),
-        null=True,
-        blank=True,
-        max_length=255,
-    )
-    hard_firmware = models.CharField(
-        verbose_name=_("hardware firmware"),
-        null=True,
-        blank=True,
-        max_length=255,
-    )
-    diag_firmware = models.CharField(
-        verbose_name=_("diagnostics firmware"),
-        null=True,
-        blank=True,
-        max_length=255,
-    )
-    mgmt_firmware = models.CharField(
-        verbose_name=_("management firmware"),
-        null=True,
-        blank=True,
-        max_length=255,
-    )
-
-    puppet_venture = models.ForeignKey(
-        PuppetVenture,
-        verbose_name=_("puppet venture"),
-        null=True,
-        blank=True,
-        default=None,
-        on_delete=models.SET_NULL,
-    )
-
-
-    puppet_venture_role = models.ForeignKey(
-        PuppetVentureRole,
-        on_delete=models.SET_NULL,
-        verbose_name=_("puppet venture role"),
-        null=True,
-        blank=True,
-        default=None,
-    )
-    # TODO: circural reference
-    # management = models.ForeignKey(
-    #     'IPAddress',
-    #     related_name="managed_set",
-    #     verbose_name=_("management address"),
-    #     null=True,
-    #     blank=True,
-    #     default=None,
-    #     on_delete=models.SET_NULL,
-    # )
-
-    verified = models.BooleanField(verbose_name=_("verified"), default=False)
-
     def __unicode__(self):
         return "{} - {} - {}".format(self.model, self.sn, self.barcode)
 
@@ -940,25 +765,25 @@ class Asset(
             #     )
         return asset_cores_count
 
-    @classmethod
-    def create(cls, base_args, device_info_args=None, part_info_args=None):
-        asset = Asset(**base_args)
-        if device_info_args:
-            d = DeviceInfo(**device_info_args)
-            d.save()
-            asset.device_info = d
-        elif part_info_args:
-            d = PartInfo(**part_info_args)
-            d.save()
-            asset.part_info = d
-        asset.save()
-        return asset
+    # @classmethod
+    # def create(cls, base_args, device_info_args=None, part_info_args=None):
+    #     asset = Asset(**base_args)
+    #     if device_info_args:
+    #         d = DeviceInfo(**device_info_args)
+    #         d.save()
+    #         asset.device_info = d
+    #     elif part_info_args:
+    #         d = PartInfo(**part_info_args)
+    #         d.save()
+    #         asset.part_info = d
+    #     asset.save()
+    #     return asset
 
-    def get_data_type(self):
-        if self.part_info:
-            return 'part'
-        else:
-            return 'device'
+    # def get_data_type(self):
+    #     if self.part_info:
+    #         return 'part'
+    #     else:
+    #         return 'device'
 
     def _try_assign_hostname(self, commit):
         if self.owner and self.model.category and self.model.category.code:
@@ -1036,9 +861,9 @@ class Asset(
         else:
             raise UserWarning('Unknown asset data type!')
 
-    @property
-    def type_is_data_center(self):
-        return self.type == AssetType.data_center
+    # @property
+    # def type_is_data_center(self):
+        # return self.type == AssetType.data_center
 
     # def find_device_to_link(self):
     #     if not self.type_is_data_center or (not self.barcode and not self.sn):
@@ -1232,6 +1057,181 @@ class Asset(
         return visualization_url
 
 
+class DCAsset(Asset, HistoryMixin, TimeTrackable, SavingUser, SoftDeletable):
+    # ralph_device_id = models.IntegerField(
+    #     verbose_name=_("Ralph device id"),
+    #     null=True,
+    #     blank=True,
+    #     unique=True,
+    #     default=None,
+    # )
+    u_level = models.CharField(max_length=10, null=True, blank=True)
+    u_height = models.CharField(max_length=10, null=True, blank=True)
+    data_center = models.ForeignKey(DataCenter, null=True, blank=False)
+    server_room = models.ForeignKey(ServerRoom, null=True, blank=False)
+    rack = models.ForeignKey(Rack, null=True, blank=True)
+    # deperecated field, use rack instead
+    rack_old = models.CharField(max_length=10, null=True, blank=True)
+    slot_no = models.CharField(
+        verbose_name=_("slot number"), max_length=3, null=True, blank=True,
+        help_text=_('Fill it if asset is blade server'),
+    )
+    position = models.IntegerField(null=True)
+    orientation = models.PositiveIntegerField(
+        choices=Orientation(),
+        default=Orientation.front.id,
+    )
+
+    # Ralph 3.0 --  new fields
+
+    parent = models.ForeignKey(
+        'self',
+        verbose_name=_("physical parent device"),
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        default=None,
+        related_name="child_set",
+    )
+    logical_parent = models.ForeignKey(
+        'self',
+        verbose_name=_("logical parent device"),
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        default=None,
+        related_name="logicalchild_set",
+    )
+    connections = models.ManyToManyField(
+        'DCAsset',
+        through='Connection',
+        symmetrical=False,
+    )
+    boot_firmware = models.CharField(
+        verbose_name=_("boot firmware"),
+        null=True,
+        blank=True,
+        max_length=255,
+    )
+    hard_firmware = models.CharField(
+        verbose_name=_("hardware firmware"),
+        null=True,
+        blank=True,
+        max_length=255,
+    )
+    diag_firmware = models.CharField(
+        verbose_name=_("diagnostics firmware"),
+        null=True,
+        blank=True,
+        max_length=255,
+    )
+    mgmt_firmware = models.CharField(
+        verbose_name=_("management firmware"),
+        null=True,
+        blank=True,
+        max_length=255,
+    )
+
+    puppet_venture = models.ForeignKey(
+        PuppetVenture,
+        verbose_name=_("puppet venture"),
+        null=True,
+        blank=True,
+        default=None,
+        on_delete=models.SET_NULL,
+    )
+
+
+    puppet_venture_role = models.ForeignKey(
+        PuppetVentureRole,
+        on_delete=models.SET_NULL,
+        verbose_name=_("puppet venture role"),
+        null=True,
+        blank=True,
+        default=None,
+    )
+    # TODO: circural reference
+    # management = models.ForeignKey(
+    #     'IPAddress',
+    #     related_name="managed_set",
+    #     verbose_name=_("management address"),
+    #     null=True,
+    #     blank=True,
+    #     default=None,
+    #     on_delete=models.SET_NULL,
+    # )
+
+    verified = models.BooleanField(verbose_name=_("verified"), default=False)
+
+    def clean_fields(self, exclude=None):
+        """
+        Constraints:
+        - picked rack is from picked server-room
+        - picked server-room is from picked data-center
+        - postion = 0: orientation(left, right)
+        - postion > 0: orientation(front, middle, back)
+        - position <= rack.max_u_height
+        - slot_no: asset is_blade=True
+        """
+        if self.rack and self.server_room:
+            if self.rack.server_room != self.server_room:
+                msg = 'This rack is not from picked server room'
+                raise ValidationError({'rack': [msg]})
+        if self.server_room and self.data_center:
+            if self.server_room.data_center != self.data_center:
+                msg = 'This server room is not from picked data center'
+                raise ValidationError({'server_room': [msg]})
+        if self.position == 0 and not Orientation.is_width(self.orientation):
+            msg = 'Valid orientations for picked position are: {}'.format(
+                ', '.join(
+                    choice.desc for choice in Orientation.WIDTH.choices
+                )
+            )
+            raise ValidationError({'orientation': [msg]})
+        if self.position > 0 and not Orientation.is_depth(self.orientation):
+            msg = 'Valid orientations for picked position are: {}'.format(
+                ', '.join(
+                    choice.desc for choice in Orientation.DEPTH.choices
+                )
+            )
+            raise ValidationError({'orientation': [msg]})
+        if self.rack and self.position > self.rack.max_u_height:
+            msg = 'Position is higher than "max u height" = {}'.format(
+                self.rack.max_u_height,
+            )
+            raise ValidationError({'position': [msg]})
+        if self.slot_no and not VALID_SLOT_NUMBER_FORMAT.search(self.slot_no):
+            msg = ("Slot number should be a number from range 1-16 with "
+                   "an optional postfix 'A' or 'B' (e.g. '16A')")
+            raise ValidationError({'slot_no': [msg]})
+
+    @property
+    def size(self):
+        """Deprecated. Kept for backwards compatibility."""
+        return 0
+
+    # def __unicode__(self):
+    #     return "{} - {}".format(
+    #         # self.ralph_device_id,
+    #         self.size,
+    #     )
+
+    # def get_ralph_device(self):
+    #     if not self.ralph_device_id:
+    #         return None
+    #     try:
+    #         dev = Device.objects.get(id=self.ralph_device_id)
+    #         return dev
+    #     except Device.DoesNotExist:
+    #         return None
+
+    def get_orientation_desc(self):
+        return Orientation.name_from_id(self.orientation)
+
+    def __init__(self, *args, **kwargs):
+        self.save_comment = None
+        self.saving_user = None
+        super(DCAsset, self).__init__(*args, **kwargs)
 
 
 class BaseItem(SavingUser):
@@ -1328,13 +1328,13 @@ class UptimeSupport(models.Model):
 class Connection(models.Model):
 
     outbound = models.ForeignKey(
-        Asset,
+        DCAsset,
         verbose_name=_("connected to device"),
         on_delete=models.PROTECT,
         related_name='outbound_connections',
     )
     inbound = models.ForeignKey(
-        Asset,
+        DCAsset,
         verbose_name=_("connected device"),
         on_delete=models.PROTECT,
         related_name='inbound_connections',
@@ -1380,7 +1380,12 @@ class CoaOemOs(Named):
     """Define oem installed operating system"""
 
 
-class OfficeInfo(TimeTrackable, SavingUser, SoftDeletable):
+class VirtualAsset(Asset, TimeTrackable, SavingUser, SoftDeletable):
+    """VMWare virtual system"""
+    pass
+
+
+class BOAsset(Asset, TimeTrackable, SavingUser, SoftDeletable):
     license_key = models.TextField(null=True, blank=True,)
     coa_number = models.CharField(
         max_length=256, verbose_name="COA number", null=True, blank=True,
@@ -1401,7 +1406,7 @@ class OfficeInfo(TimeTrackable, SavingUser, SoftDeletable):
 
     def save(self, commit=True, *args, **kwargs):
         _replace_empty_with_none(self, ['purpose'])
-        instance = super(OfficeInfo, self).save(commit=commit, *args, **kwargs)
+        instance = super(BOAsset, self).save(commit=commit, *args, **kwargs)
         return instance
 
     def __unicode__(self):
@@ -1415,7 +1420,7 @@ class OfficeInfo(TimeTrackable, SavingUser, SoftDeletable):
     def __init__(self, *args, **kwargs):
         self.save_comment = None
         self.saving_user = None
-        super(OfficeInfo, self).__init__(*args, **kwargs)
+        super(BOAsset, self).__init__(*args, **kwargs)
 
 
 class PartInfo(TimeTrackable, SavingUser, SoftDeletable):

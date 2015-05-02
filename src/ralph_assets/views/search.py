@@ -23,7 +23,7 @@ from ralph_assets.forms import (
     BackOfficeSearchAssetForm,
     DataCenterSearchAssetForm,
 )
-from ralph_assets.models import Asset, AssetCategory, PartInfo, OfficeInfo
+from ralph_assets.models import DCAsset, BOAsset, AssetCategory, Asset
 from ralph_assets.views.base import AssetsBase, DataTableColumnAssets
 
 
@@ -401,14 +401,14 @@ class _AssetSearch(AssetsSearchQueryableMixin, AssetsBase):
                 'back_office': 'BO',
             }[mode]
         )
-        pre_selected = ['device_info', 'model', 'warehouse']
+        pre_selected = ['model', 'warehouse']
         if mode == 'dc':
-            self.objects = Asset.objects_dc.select_related(*pre_selected)
-            self.admin_objects = Asset.admin_objects_dc
+            self.objects = DCAsset.objects.select_related(*pre_selected)
+            self.admin_objects = DCAsset.admin_objects
             search_form = DataCenterSearchAssetForm
         elif mode == 'back_office':
-            self.objects = Asset.objects_bo.select_related(*pre_selected)
-            self.admin_objects = Asset.admin_objects_bo
+            self.objects = BOAsset.objects.select_related(*pre_selected)
+            self.admin_objects = BOAsset.admin_objects
             search_form = BackOfficeSearchAssetForm
         self.form = search_form(self.request.GET, mode=mode)
         super(_AssetSearch, self).set_mode(mode)
@@ -578,8 +578,8 @@ class AssetSearchDataTable(_AssetSearch, DataTableMixin):
                         cell = self.get_cell(
                             getattr(asset, type), field, model
                         )
-                    elif nested_field_name == 'part_info':
-                        cell = self.get_cell(asset.part_info, field, PartInfo)
+                    # elif nested_field_name == 'part_info':
+                        # cell = self.get_cell(asset.part_info, field, PartInfo)
                     elif nested_field_name == 'venture':
                         cell = self.get_cell(asset.venture, field, Venture)
                     elif nested_field_name == 'is_discovered':

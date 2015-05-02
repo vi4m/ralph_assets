@@ -20,7 +20,8 @@ def register(model, exclude=None, m2m=False):
         raise TypeError('Please specified exclude argument.')
 
     if (not m2m and model in registry) or (m2m and model in registry_m2m):
-        raise Exception('{} is arleady registered.'.format(model))
+        return
+        #raise Exception('{} is arleady registered.'.format(model))
 
     if not m2m:
         fields = set([field.name for field in model._meta.fields])

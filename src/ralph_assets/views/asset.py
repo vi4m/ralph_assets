@@ -19,7 +19,7 @@ from django.utils.translation import ugettext_lazy as _
 from ralph_assets.licences.models import Licence
 from ralph_assets.forms import BladeSystemForm, BladeServerForm
 from ralph_assets.models import Asset
-from ralph_assets.models_assets import AssetType, DeviceInfo
+from ralph_assets.models_assets import AssetType, DCAsset, BOAsset
 from ralph_assets.views.base import (
     ActiveSubmoduleByAssetMixin,
     AssetsBase,
@@ -31,7 +31,7 @@ from ralph_assets.views.base import (
 from ralph_assets.views.search import _AssetSearch, AssetSearchDataTable
 from ralph_assets.views.utils import (
     _move_data,
-    _update_office_info,
+    # _update_office_info,
     get_transition_url,
 )
 from ralph.util.reports import Report
@@ -145,15 +145,15 @@ class AssetBulkEdit(
                 instance.modified_by = self.request.user.get_profile()
                 self._save_licences(instance, formset.forms[idx])
                 instance.save(user=self.request.user)
-                new_src, office_info_data = _move_data(
-                    formset.forms[idx].cleaned_data,
-                    {}, ['purpose']
-                )
-                formset.forms[idx].cleaned_data = new_src
-                instance = _update_office_info(
-                    self.request.user, instance,
-                    office_info_data,
-                )
+                # new_src, office_info_data = _move_data(
+                    # formset.forms[idx].cleaned_data,
+                    # {}, ['purpose']
+                # )
+                # formset.forms[idx].cleaned_data = new_src
+                # instance = _update_office_info(
+                    # self.request.user, instance,
+                    # office_info_data,
+                # )
 
     def handle_formset_error(self, formset_error):
         messages.error(
@@ -181,7 +181,7 @@ class ChassisBulkEdit(SubmoduleModeMixin, HardwareModeMixin, AssetsBase):
     SAME_SLOT_MSG_ERROR = _('Slot number must be unique')
 
     def get_formset(self):
-        return modelformset_factory(DeviceInfo, form=BladeServerForm, extra=0)
+        return modelformset_factory(DCAsset, form=BladeServerForm, extra=0)
 
     def get_context_data(self, *args, **kwargs):
         self.mode = 'dc'
@@ -215,8 +215,8 @@ class ChassisBulkEdit(SubmoduleModeMixin, HardwareModeMixin, AssetsBase):
             )
         context = self.get_context_data(self, *args, **kwargs)
         context['chassis_form'] = BladeSystemForm()
-        device_infos = DeviceInfo.objects.filter(
-            asset__id__in=self.selected_servers
+        device_infos = DCAsset.objects.filter(
+            id__in=self.selected_servers
         )
         context['blade_server_formset'] = self.get_formset()(
             queryset=device_infos,

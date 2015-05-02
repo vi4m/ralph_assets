@@ -29,9 +29,9 @@ from ralph_assets.views.base import (
 from ralph_assets.views.utils import (
     _create_part,
     _update_asset,
-    _update_office_info,
+    # _update_office_info,
     _move_data,
-    _update_part_info,
+    # _update_part_info,
 )
 
 
@@ -46,7 +46,7 @@ class AddPart(HardwareModeMixin, SubmoduleModeMixin, AssetsBase):
         ret = super(AddPart, self).get_context_data(**kwargs)
         ret.update({
             'asset_form': self.asset_form,
-            'part_info_form': self.part_info_form,
+            # 'part_info_form': self.part_info_form,
             'form_id': 'add_part_form',
             'edit_mode': False,
         })

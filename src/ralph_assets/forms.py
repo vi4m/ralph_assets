@@ -44,13 +44,15 @@ from mptt.forms import TreeNodeChoiceField
 
 from ralph_assets.models import (
     Asset,
+    DCAsset,
+    BOAsset,
     AssetCategory,
     AssetCategoryType,
     AssetSource,
     AssetStatus,
     AssetType,
-    DeviceInfo,
-    OfficeInfo,
+    # DeviceInfo,
+    # OfficeInfo,
     PartInfo,
     RALPH_DATE_FORMAT,
     Service,
@@ -70,13 +72,22 @@ RALPH_DATE_FORMAT_LIST = [RALPH_DATE_FORMAT]
 
 # We use lambdas, so the fieldsets can be recreated after modifications
 
-def asset_fieldset():
+def dcasset_fieldset():
     return OrderedDict([
+        ('DC Location', [
+            'data_center',
+            'server_room',
+            'rack',
+            'orientation',
+            'position',
+            'slot_no',
+            ]),
         ('Basic Info', [
-            'type', 'category', 'model', 'purchase_order', 'niw', 'barcode',
+            'hostname','category', 'model', 'purchase_order', 'niw', 'barcode',
+            'device_environment', 'service',
             'sn', 'warehouse', 'location', 'status', 'task_url',
-            'loan_end_date', 'remarks', 'service_name', 'property_of',
-            'region',
+            'loan_end_date', 'remarks', 'service', 'property_of',
+            'region', 'rack', 'position'
         ]),
         ('Financial Info', [
             'order_no', 'invoice_date', 'invoice_no', 'price', 'provider',
@@ -91,6 +102,27 @@ def asset_fieldset():
         ]),
     ])
 
+def boasset_fieldset():
+    return OrderedDict([
+    ('Basic Info', [
+        'category', 'model', 'purchase_order', 'niw', 'barcode',
+        'sn', 'warehouse', 'location', 'status', 'task_url',
+        'loan_end_date', 'remarks', 'service_name', 'property_of',
+        'region',
+    ]),
+    ('Financial Info', [
+        'order_no', 'invoice_date', 'invoice_no', 'price', 'provider',
+        'deprecation_rate', 'source', 'request_date',
+        'provider_order_date', 'delivery_date', 'deprecation_end_date',
+        # FIXME: budget_info
+         'force_deprecation',
+    ]),
+    ('User Info', [
+        'user', 'owner', 'employee_id', 'company', 'department', 'manager',
+        'profit_center', 'cost_center',
+    ]),
+])
+
 
 def asset_search_back_office_fieldsets():
     return OrderedDict([
@@ -102,7 +134,7 @@ def asset_search_back_office_fieldsets():
             ],
             'collapsed': [
                 'warehouse', 'task_url', 'category', 'loan_end_date_from',
-                'loan_end_date_to', 'part_info', 'niw', 'manufacturer',
+                'loan_end_date_to', 'niw', 'manufacturer',
                 'service_name', 'location', 'remarks',
             ],
         }),
@@ -139,7 +171,7 @@ def asset_search_dc_fieldsets():
             ],
             'collapsed': [
                 'status', 'task_url', 'category', 'loan_end_date_from',
-                'loan_end_date_to', 'part_info', 'niw', 'service_name',
+                'loan_end_date_to', 'niw', 'service_name',
                 'location', 'remarks',
             ],
         }),
@@ -408,7 +440,7 @@ class BulkEditAssetForm(DependencyForm, ModelForm):
         widgets = {
             'delivery_date': DateWidget(),
             'deprecation_end_date': DateWidget(),
-            'device_info': HiddenInput(),
+            # 'device_info': HiddenInput(),
             'invoice_date': DateWidget(),
             'provider_order_date': DateWidget(),
             'request_date': DateWidget(),
@@ -489,7 +521,7 @@ class BulkEditAssetForm(DependencyForm, ModelForm):
 class BackOfficeBulkEditAssetForm(BulkEditAssetForm):
     class Meta(BulkEditAssetForm.Meta):
         fields = (
-            'type', 'status', 'barcode', 'hostname', 'model',
+            'status', 'barcode', 'hostname', 'model',
             'purchase_order', 'user', 'owner', 'warehouse', 'sn',
             'property_of', 'region', 'purpose', 'remarks', 'service_name',
             'invoice_no', 'invoice_date', 'price', 'provider', 'task_url',
@@ -528,12 +560,12 @@ class BackOfficeBulkEditAssetForm(BulkEditAssetForm):
     status = ChoiceField(
         choices=AssetStatus.back_office(required=True), required=False,
     )
-    type = ChoiceField(
-        required=True,
-        choices=[('', '----')] + [
-            (choice.id, choice.name) for choice in AssetType.BO.choices
-        ],
-    )
+    # type = ChoiceField(
+    #     required=True,
+    #     choices=[('', '----')] + [
+    #         (choice.id, choice.name) for choice in AssetType.BO.choices
+    #     ],
+    # )
 
 
 class DataCenterBulkEditAssetForm(BulkEditAssetForm):
@@ -559,7 +591,7 @@ class DataCenterBulkEditAssetForm(BulkEditAssetForm):
 
 class DeviceForm(ModelForm):
     class Meta:
-        model = DeviceInfo
+        model = DCAsset
         fields = (
             'data_center',
             'server_room',
@@ -570,7 +602,7 @@ class DeviceForm(ModelForm):
             # 'ralph_device_id',
         )
 
-    force_unlink = BooleanField(required=False, label=_('Force unlink'))
+    # force_unlink = BooleanField(required=False, label=_('Force unlink'))
     # create_stock = BooleanField(
     #     required=False,
     #     label=_('Create stock device'),
@@ -880,14 +912,14 @@ class BaseAssetForm(ModelForm):
             self.fields['model'].widget.plugin_options['add_link'] +=\
                 '&type=' + str(AssetType.data_center.id)
             self.fields['model'].widget.channel = LOOKUPS['asset_dcmodel']
-            self.fields['type'].choices = [
-                (c.id, c.desc) for c in AssetType.DC.choices]
+            # self.fields['type'].choices = [
+                # (c.id, c.desc) for c in AssetType.DC.choices]
         elif self.mode == "back_office":
             self.fields['model'].widget.plugin_options['add_link'] +=\
                 '&type=' + str(AssetType.back_office.id)
             self.fields['model'].widget.channel = LOOKUPS['asset_bomodel']
-            self.fields['type'].choices = [
-                (c.id, c.desc) for c in AssetType.BO.choices]
+            # self.fields['type'].choices = [
+                # (c.id, c.desc) for c in AssetType.BO.choices]
         post_customize_fields.send(sender=self, mode=self.mode)
 
 
@@ -933,7 +965,7 @@ class BaseAddAssetForm(DependencyAssetForm, BaseAssetForm):
             'source',
             'status',
             'task_url',
-            'type',
+            # 'type',
             'user',
             'warehouse',
         )
@@ -1025,7 +1057,6 @@ class BaseAddAssetForm(DependencyAssetForm, BaseAssetForm):
     # )
 
     def __init__(self, *args, **kwargs):
-        self.fieldsets = asset_fieldset()
         self.mode = kwargs.pop('mode', None)
         super(BaseAddAssetForm, self).__init__(*args, **kwargs)
         self.customize_fields()
@@ -1102,7 +1133,7 @@ class BaseEditAssetForm(DependencyAssetForm, BaseAssetForm):
             'source',
             'status',
             'task_url',
-            'type',
+            # 'type',
             'user',
             'warehouse',
         )
@@ -1200,7 +1231,6 @@ class BaseEditAssetForm(DependencyAssetForm, BaseAssetForm):
     # )
 
     def __init__(self, *args, **kwargs):
-        self.fieldsets = asset_fieldset()
         self.mode = kwargs.pop('mode', None)
         super(BaseEditAssetForm, self).__init__(*args, **kwargs)
         self.customize_fields()
@@ -1341,29 +1371,40 @@ class BackOfficeAddDeviceForm(AddDeviceForm):
 
     def __init__(self, *args, **kwargs):
         super(BackOfficeAddDeviceForm, self).__init__(*args, **kwargs)
-        for after, field in (
-            ('property_of', 'service'),
-            ('service', 'device_environment'),
-        ):
-            self.fieldsets['Basic Info'].append(field)
-            move_after(self.fieldsets['Basic Info'], after, field)
-        self.fieldsets['User Info'].append('segment')
+        # for after, field in (
+        #     ('property_of', 'service'),
+        #     ('service', 'device_environment'),
+        # ):
+        self.fieldsets = boasset_fieldset()
+            # self.fieldsets['Basic Info'].append(field)
+            # move_after(self.fieldsets['Basic Info'], after, field)
+        # self.fieldsets['User Info'].append('segment')
 
 
 class DataCenterAddDeviceForm(AddDeviceForm):
 
-    edit_management_ip = True
+    # edit_management_ip = True
 
     class Meta(BaseAddAssetForm.Meta):
+        model = DCAsset
+
         fields = BaseAddAssetForm.Meta.fields + (
-            'device_environment', 'service',
+            'hostname',
+            'device_environment',
+            'service',
+            'data_center',
+            'server_room',
+            'rack',
+            'orientation',
+            'position',
+            'slot_no',
         )
-    # FIXME: ?
-    # device_environment = ModelChoiceField(
-    #     required=True,
-    #     queryset=models_device.DeviceEnvironment.objects.all(),
-    #     label=_('Environment'),
-    # )
+        # FIXME: ?
+    device_environment = ModelChoiceField(
+        required=True,
+        queryset=models_assets.DeviceEnvironment.objects.all(),
+        label=_('Environment'),
+    )
     service = AutoCompleteSelectField(
         LOOKUPS['service'],
         required=True,
@@ -1373,19 +1414,49 @@ class DataCenterAddDeviceForm(AddDeviceForm):
         choices=AssetStatus.data_center(required=True), required=False,
     )
 
+    data_center = ModelChoiceField(
+        label=_('data center'),
+        queryset=DataCenter.objects.all(),
+        required=True,
+        widget=Select(attrs={'id': 'data-center-selection'}),
+    )
+    server_room = CascadeModelChoiceField(
+        ('ralph_assets.models', 'ServerRoomLookup'),
+        label=_('Server room'),
+        queryset=ServerRoom.objects.all(),
+        required=True,
+
+        attrs={'id': 'server-room-selection'},
+        parent_field=data_center,
+    )
+    rack = CascadeModelChoiceField(
+        ('ralph_assets.models', 'RackLookup'),
+        label=_('Rack'),
+        queryset=Rack.objects.all(),
+        required=False,
+
+        parent_field=server_room,
+    )
+
+    # def __init__(self, *args, **kwargs):
+    #     kwargs.pop('mode')
+    #     exclude = kwargs.pop('exclude', None)
+    #     super(DataCenterAddDeviceForm, self).__init__(*args, **kwargs)
+
     def __init__(self, *args, **kwargs):
         super(DataCenterAddDeviceForm, self).__init__(*args, **kwargs)
-        for after, field in (
-            ('property_of', 'service'),
-            ('service', 'device_environment'),
-        ):
-            self.fieldsets['Basic Info'].append(field)
-            move_after(self.fieldsets['Basic Info'], after, field)
+        self.fieldsets = dcasset_fieldset()
+        # for after, field in (
+        #     ('property_of', 'service'),
+        #     ('service', 'device_environment'),
+        # ):
+        #     self.fieldsets['Basic Info'].append(field)
+        #     # move_after(self.fieldsets['Basic Info'], after, field)
 
 
 class OfficeForm(ModelForm):
     class Meta:
-        model = OfficeInfo
+        model = BOAsset
         exclude = ('imei', 'purpose', 'created', 'modified')
         widgets = {
             'date_of_last_inventory': DateWidget(),
@@ -1441,7 +1512,7 @@ class BackOfficeEditDeviceForm(ReadOnlyFieldsMixin, EditDeviceForm):
 
     fieldsets = OrderedDict([
         ('Basic Info', [
-            'type', 'category', 'model', 'purchase_order', 'niw', 'barcode',
+            'category', 'model', 'purchase_order', 'niw', 'barcode',
             'sn', 'imei', 'warehouse', 'location', 'status', 'task_url',
             'loan_end_date', 'purpose', 'remarks', 'service_name',
             'property_of', 'hostname', 'created', 'service',
@@ -1506,7 +1577,7 @@ class DataCenterEditDeviceForm(ReadOnlyFieldsMixin, EditDeviceForm):
 
     fieldsets = OrderedDict([
         ('Basic Info', [
-            'management_ip', 'type', 'category', 'model', 'purchase_order',
+            'management_ip',  'category', 'model', 'purchase_order',
             'niw', 'barcode', 'sn', 'warehouse', 'location', 'status',
             'task_url', 'loan_end_date', 'remarks', 'service_name',
             'property_of', 'hostname', 'service', 'device_environment',
@@ -1600,11 +1671,11 @@ class SearchAssetForm(Form):
     cost_center = CharField(required=False, label=_('Cost center'))
     profit_center = CharField(required=False, label=_('Profit center'))
     department = CharField(required=False, label=_('Department'))
-    part_info = ChoiceField(
-        required=False,
-        choices=[('', '----'), ('device', 'Device'), ('part', 'Part')],
-        label=_('Asset type'),
-    )
+    # part_info = ChoiceField(
+        # required=False,
+        # choices=[('', '----'), ('device', 'Device'), ('part', 'Part')],
+        # label=_('Asset type'),
+    # )
     source = ChoiceField(
         required=False,
         choices=[('', '----')] + AssetSource(),
@@ -1963,7 +2034,7 @@ class SearchUserForm(Form):
 class BladeSystemForm(ModelForm):
 
     class Meta:
-        model = DeviceInfo
+        model = DCAsset
         fields = ('data_center', 'server_room', 'rack', 'position',)
 
     data_center = ModelChoiceField(
@@ -1992,7 +2063,7 @@ class BladeSystemForm(ModelForm):
 class BladeServerForm(ModelForm):
 
     class Meta:
-        model = DeviceInfo
+        model = DCAsset
         fields = ('slot_no',)
 
     def __init__(self, *args, **kwargs):

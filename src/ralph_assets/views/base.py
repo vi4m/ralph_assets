@@ -27,7 +27,7 @@ from ralph.account.models import Perm, ralph_permission
 from ralph_assets import forms as assets_forms
 from ralph_assets.app import Assets as app
 from ralph_assets.models_assets import AssetType
-from ralph_assets.models import Asset
+from ralph_assets.models import DCAsset, BOAsset
 from ralph_assets.forms import OfficeForm
 
 MAX_PAGE_SIZE = 65535
@@ -90,9 +90,9 @@ class AssetsBase(ACLGateway, MenuMixin, TemplateView):
 
     def set_asset_objects(self, mode):
         if mode == 'dc':
-            self.asset_objects = Asset.objects_dc
+            self.asset_objects = DCAsset.objects
         elif mode == 'back_office':
-            self.asset_objects = Asset.objects_bo
+            self.asset_objects = BOAsset.objects
 
     def set_mode(self, mode):
         self.mode = mode
@@ -110,19 +110,19 @@ class AssetsBase(ACLGateway, MenuMixin, TemplateView):
             found = []
         return found
 
-    def write_office_info2asset_form(self):
-        """
-        Writes fields from office_info form to asset form.
-        """
-        if self.asset.type in AssetType.BO.choices:
-            self.office_info_form = OfficeForm(instance=self.asset.office_info)
-            fields = ['imei', 'purpose']
-            for field in fields:
-                if field not in self.asset_form.fields:
-                    continue
-                self.asset_form.fields[field].initial = (
-                    getattr(self.asset.office_info, field, '')
-                )
+    # def write_office_info2asset_form(self):
+    #     """
+    #     Writes fields from office_info form to asset form.
+    #     """
+    #     if self.asset.type in AssetType.BO.choices:
+    #         self.office_info_form = OfficeForm(instance=self.asset.office_info)
+    #         fields = ['imei', 'purpose']
+    #         for field in fields:
+    #             if field not in self.asset_form.fields:
+    #                 continue
+    #             self.asset_form.fields[field].initial = (
+    #                 getattr(self.asset.office_info, field, '')
+    #             )
 
     def form_dispatcher(self, class_name):
         """
@@ -143,38 +143,38 @@ class AssetsBase(ACLGateway, MenuMixin, TemplateView):
             raise Exception("No form class named: {}".format(form_class_name))
         return form_class
 
-    def validate_forms_dependency(self):
-        """
-        Validates dependency among forms. Sometimes fields from one form change
-        behaviour of fields from other form, like:
-            asset_form.model.category.is_blade = True, then
-            device_info.slot_no is required
-        """
-        def set_error_message(form, field_name, msg):
-            errors = getattr(form, 'errors', {})
-            field_error = errors.setdefault(field_name, [])
-            field_error.append(msg)
+    # def validate_forms_dependency(self):
+    #     """
+    #     Validates dependency among forms. Sometimes fields from one form change
+    #     behaviour of fields from other form, like:
+    #         asset_form.model.category.is_blade = True, then
+    #         device_info.slot_no is required
+    #     """
+    #     def set_error_message(form, field_name, msg):
+    #         errors = getattr(form, 'errors', {})
+    #         field_error = errors.setdefault(field_name, [])
+    #         field_error.append(msg)
 
-        model = self.asset_form.cleaned_data.get('model')
-        slot_no = self.additional_info.cleaned_data.get('slot_no')
-        if model and not model.category.is_blade and slot_no not in [None, '']:
-            # slot_no cant be set when asset is not blade
-            set_error_message(
-                form=self.additional_info,
-                field_name='slot_no',
-                msg=_("Field can't be set if asset is other than blade"),
-            )
-        if model and model.category.is_blade and slot_no in [None, '']:
-            # slot_no is required when asset is blade
-            set_error_message(
-                form=self.additional_info,
-                field_name='slot_no',
-                msg=_("Field is required when asset is blade"),
-            )
-        for form_name in ['asset_form', 'additional_info']:
-            form = getattr(self, form_name)
-            if form.errors:
-                raise ValidationError(_('Correct errors, please'))
+    #     model = self.asset_form.cleaned_data.get('model')
+    #     slot_no = self.additional_info.cleaned_data.get('slot_no')
+    #     if model and not model.category.is_blade and slot_no not in [None, '']:
+    #         # slot_no cant be set when asset is not blade
+    #         set_error_message(
+    #             form=self.additional_info,
+    #             field_name='slot_no',
+    #             msg=_("Field can't be set if asset is other than blade"),
+    #         )
+    #     if model and model.category.is_blade and slot_no in [None, '']:
+    #         # slot_no is required when asset is blade
+    #         set_error_message(
+    #             form=self.additional_info,
+    #             field_name='slot_no',
+    #             msg=_("Field is required when asset is blade"),
+    #         )
+    #     for form_name in ['asset_form', 'additional_info']:
+    #         form = getattr(self, form_name)
+    #         if form.errors:
+    #             raise ValidationError(_('Correct errors, please'))
 
 
 class DataTableColumnAssets(DataTableColumn):

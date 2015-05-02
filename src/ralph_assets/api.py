@@ -17,6 +17,7 @@ from tastypie.throttle import CacheThrottle
 
 from ralph.urls import LATEST_API
 from ralph_assets.models import (
+    DCAsset,
     Asset,
     AssetManufacturer,
     AssetModel,
@@ -24,7 +25,7 @@ from ralph_assets.models import (
     AssetSource,
     AssetStatus,
     AssetType,
-    DeviceInfo,
+    # DeviceInfo,
     Licence,
     LicenceType,
     Service,
@@ -235,16 +236,16 @@ class LicenceResource(ModelResource):
         )
 
 
-class DeviceInfoResource(ModelResource):
-    class Meta:
-        queryset = DeviceInfo.objects.all()
-        list_allowed_methods = ['get']
-        filtering = {
-            'ralph_device_id': ALL,
-        }
-        excludes = ["cache_version", "created", "deleted", "modified"]
+# class DeviceInfoResource(ModelResource):
+#     class Meta:
+#         queryset = DeviceInfo.objects.all()
+#         list_allowed_methods = ['get']
+#         filtering = {
+#             'ralph_device_id': ALL,
+#         }
+#         excludes = ["cache_version", "created", "deleted", "modified"]
 
-
+# FIXME: rename to DCAssetsResource
 class AssetsResource(ModelResource):
     asset_type = ChoicesField(AssetType, 'type')
     licences = fields.ToManyField(LicenceResource, 'licences', full=True)
@@ -276,12 +277,12 @@ class AssetsResource(ModelResource):
         'device_environment',
         null=True,
     )
-    device_info = fields.ForeignKey(
-        DeviceInfoResource, 'device_info', null=True, full=True,
-    )
+    # device_info = fields.ForeignKey(
+        # DeviceInfoResource, 'device_info', null=True, full=True,
+    # )
 
     class Meta:
-        queryset = Asset.objects.all()
+        queryset = DCAsset.objects.all()
         authentication = ApiKeyAuthentication()
         filtering = {
             'barcode': ALL,
@@ -330,7 +331,7 @@ class AssetsResource(ModelResource):
     def get_object_list(self, request):
         # Workaround for RegionMiddleware
         # Resource.queryset is evaluated at module load
-        return Asset.objects.all()
+        return DCAsset.objects.all()
 
 
 class UserAssignmentsResource(ModelResource):

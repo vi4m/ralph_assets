@@ -36,8 +36,8 @@ from ralph_assets.views.utils import (
     _create_assets,
     _move_data,
     _update_asset,
-    _update_device_info,
-    _update_office_info,
+    # _update_device_info,
+    # _update_office_info,
     get_transition_url,
 )
 
@@ -53,48 +53,49 @@ class AddDevice(HardwareModeMixin, SubmoduleModeMixin, AssetsBase):
         ret = super(AddDevice, self).get_context_data(**kwargs)
         ret.update({
             'asset_form': self.asset_form,
-            'additional_info': self.additional_info,
+            # 'additional_info': self.additional_info,
             'form_id': 'add_device_asset_form',
             'edit_mode': False,
             'multivalue_fields': ['sn', 'barcode', 'imei'],
         })
         return ret
 
-    def _set_additional_info_form(self):
-        if self.mode == 'dc':
-            # XXX: how to clean it?
-            if self.request.method == 'POST':
-                self.additional_info = DeviceForm(
-                    self.request.POST,
-                    mode=self.mode,
-                    exclude='create_stock',
-                )
-            else:
-                self.additional_info = DeviceForm(
-                    mode=self.mode,
-                    exclude='create_stock',
-                )
-        elif self.mode == 'back_office':
-            if self.request.method == 'POST':
-                self.additional_info = OfficeForm(self.request.POST)
-            else:
-                self.additional_info = OfficeForm()
+    # def _set_additional_info_form(self):
+    #     if self.mode == 'dc':
+    #         # XXX: how to clean it?
+    #         # if self.request.method == 'POST':
+    #         #     self.additional_info = DeviceForm(
+    #         #         self.request.POST,
+    #         #         mode=self.mode,
+    #         #         exclude='create_stock',
+    #         #     )
+    #         # else:
+    #         #     self.additional_info = DeviceForm(
+    #         #         mode=self.mode,
+    #         #         exclude='create_stock',
+    #         #     )
+    #     elif self.mode == 'back_office':
+    #         if self.request.method == 'POST':
+    #             self.additional_info = OfficeForm(self.request.POST)
+    #         else:
+    #             self.additional_info = OfficeForm()
 
     def get(self, *args, **kwargs):
         device_form_class = self.form_dispatcher('AddDevice')
         self.asset_form = device_form_class(mode=self.mode)
-        self._set_additional_info_form()
+        # import pdb; pdb.set_trace()
+        # self._set_additional_info_form()
         return super(AddDevice, self).get(*args, **kwargs)
 
     def post(self, *args, **kwargs):
         device_form_class = self.form_dispatcher('AddDevice')
         self.asset_form = device_form_class(self.request.POST, mode=self.mode)
-        self._set_additional_info_form()
-        if self.asset_form.is_valid() and self.additional_info.is_valid():
-            try:
-                self.validate_forms_dependency()
-            except ValidationError as e:
-                return super(AddDevice, self).get(*args, **kwargs)
+        # self._set_additional_info_form()
+        if self.asset_form.is_valid():# and self.additional_info.is_valid():
+            # try:
+            #     self.validate_forms_dependency()
+            # except ValidationError as e:
+            #     return super(AddDevice, self).get(*args, **kwargs)
 
             force_unlink = self.additional_info.cleaned_data.get(
                 'force_unlink', None,
@@ -112,7 +113,7 @@ class AddDevice(HardwareModeMixin, SubmoduleModeMixin, AssetsBase):
                 ids = _create_assets(
                     self.request.user.get_profile(),
                     self.asset_form,
-                    self.additional_info,
+                    # self.additional_info,
                     self.mode
                 )
             except ValueError as e:
@@ -148,7 +149,7 @@ class EditDeviceComponents(HardwareModeMixin, SubmoduleModeMixin, AssetsBase):
             Asset.objects,
             id=kwargs.get('asset_id'),
         )
-        self.parts = Asset.objects.filter(part_info__device=self.asset)
+        # self.parts = Asset.objects.filter(part_info__device=self.asset)
         # self._set_additional_info_form()
 
     def get_context_data(self, **kwargs):
@@ -157,7 +158,7 @@ class EditDeviceComponents(HardwareModeMixin, SubmoduleModeMixin, AssetsBase):
         context.update({
             'components': components,
             'edit_mode': True,
-            'parts': self.parts,
+            # 'parts': self.parts,
             'asset': self.asset,
         })
         return context
@@ -175,7 +176,7 @@ class EditDevice(HardwareModeMixin, SubmoduleModeMixin, AssetsBase):
             Asset.objects,
             id=kwargs.get('asset_id'),
         )
-        self.parts = Asset.objects.filter(part_info__device=self.asset)
+        # self.parts = Asset.objects.filter(part_info__device=self.asset)
         device_form_class = self.form_dispatcher('EditDevice')
         self.asset_form = device_form_class(
             self.request.POST or None,
@@ -183,71 +184,71 @@ class EditDevice(HardwareModeMixin, SubmoduleModeMixin, AssetsBase):
             mode=self.mode,
         )
         self.part_form = MoveAssetPartForm(self.request.POST or None)
-        self._set_additional_info_form()
+        # self._set_additional_info_form()
 
     def get_context_data(self, **kwargs):
         context = super(EditDevice, self).get_context_data(**kwargs)
         context.update({
             'asset_form': self.asset_form,
-            'additional_info': self.additional_info,
+            # 'additional_info': self.additional_info,
             'part_form': self.part_form,
             'form_id': 'edit_device_asset_form',
             'edit_mode': True,
-            'parts': self.parts,
+            # 'parts': self.parts,
             'asset': self.asset,
         })
         return context
 
-    def _update_additional_info(self, modifier):
-        if self.asset.type in AssetType.DC.choices:
-            self.asset = _update_device_info(
-                modifier, self.asset, self.additional_info.cleaned_data
-            )
-            if self.additional_info.cleaned_data.get('create_stock'):
-                self.asset.create_stock_device()
-        elif self.asset.type in AssetType.BO.choices:
-            new_src, new_dst = _move_data(
-                self.asset_form.cleaned_data,
-                self.additional_info.cleaned_data,
-                ['imei', 'purpose'],
-            )
-            self.asset_form.cleaned_data = new_src
-            self.additional_info.cleaned_data = new_dst
-            self.asset = _update_office_info(
-                modifier, self.asset, self.additional_info.cleaned_data
-            )
+    # def _update_additional_info(self, modifier):
+    #     if self.asset.type in AssetType.DC.choices:
+    #         self.asset = _update_device_info(
+    #             modifier, self.asset, self.additional_info.cleaned_data
+    #         )
+    #         if self.additional_info.cleaned_data.get('create_stock'):
+    #             self.asset.create_stock_device()
+    #     elif self.asset.type in AssetType.BO.choices:
+    #         new_src, new_dst = _move_data(
+    #             self.asset_form.cleaned_data,
+    #             self.additional_info.cleaned_data,
+    #             ['imei', 'purpose'],
+    #         )
+    #         self.asset_form.cleaned_data = new_src
+    #         self.additional_info.cleaned_data = new_dst
+    #         self.asset = _update_office_info(
+    #             modifier, self.asset, self.additional_info.cleaned_data
+    #         )
 
-    def _set_additional_info_form(self):
-        if self.mode == 'dc':
-            # XXX: how do it better, differ only by one arg?
-            if self.request.method == 'POST':
-                self.additional_info = DeviceForm(
-                    self.request.POST,
-                    instance=self.asset.device_info,
-                    mode=self.mode,
-                )
-            else:
-                self.additional_info = DeviceForm(
-                    instance=self.asset.device_info,
-                    mode=self.mode,
-                )
-        elif self.mode == 'back_office':
-            # XXX: how do it better, differ only by one arg?
-            if self.request.method == 'POST':
-                self.additional_info = OfficeForm(
-                    self.request.POST,
-                    instance=self.asset.office_info,
-                )
-            else:
-                self.additional_info = OfficeForm(
-                    instance=self.asset.office_info,
-                )
-                fields = ['imei', 'purpose']
-                for field in fields:
-                    if field in self.asset_form.fields:
-                        self.asset_form.fields[field].initial = (
-                            getattr(self.asset.office_info, field, '')
-                        )
+    # def _set_additional_info_form(self):
+    #     if self.mode == 'dc':
+    #         # XXX: how do it better, differ only by one arg?
+    #         if self.request.method == 'POST':
+    #             self.additional_info = DeviceForm(
+    #                 self.request.POST,
+    #                 instance=self.asset.device_info,
+    #                 mode=self.mode,
+    #             )
+    #         else:
+    #             self.additional_info = DeviceForm(
+    #                 instance=self.asset.device_info,
+    #                 mode=self.mode,
+    #             )
+    #     elif self.mode == 'back_office':
+    #         # XXX: how do it better, differ only by one arg?
+    #         if self.request.method == 'POST':
+    #             self.additional_info = OfficeForm(
+    #                 self.request.POST,
+    #                 instance=self.asset.office_info,
+    #             )
+    #         else:
+    #             self.additional_info = OfficeForm(
+    #                 instance=self.asset.office_info,
+    #             )
+    #             fields = ['imei', 'purpose']
+    #             for field in fields:
+    #                 if field in self.asset_form.fields:
+    #                     self.asset_form.fields[field].initial = (
+    #                         getattr(self.asset.office_info, field, '')
+    #                     )
 
     def get(self, *args, **kwargs):
         self.initialize_vars(*args, **kwargs)
@@ -291,23 +292,23 @@ class EditDevice(HardwareModeMixin, SubmoduleModeMixin, AssetsBase):
         ):
             if all((
                 self.asset_form.is_valid(),
-                self.additional_info.is_valid(),
+                # self.additional_info.is_valid(),
             )):
-                try:
-                    self.validate_forms_dependency()
-                except ValidationError:
-                    return super(EditDevice, self).get(*args, **kwargs)
+                # try:
+                #     self.validate_forms_dependency()
+                # except ValidationError:
+                #     return super(EditDevice, self).get(*args, **kwargs)
 
-                force_unlink = self.additional_info.cleaned_data.get(
-                    'force_unlink', None,
-                )
+                # force_unlink = self.additional_info.cleaned_data.get(
+                    # 'force_unlink', None,
+                # )
                 modifier_profile = self.request.user.get_profile()
                 self.asset = _update_asset(
                     modifier_profile, self.asset, self.asset_form.cleaned_data
                 )
-                self._update_additional_info(modifier_profile.user)
+                # self._update_additional_info(modifier_profile.user)
                 self.asset.save(
-                    user=self.request.user, force_unlink=force_unlink,
+                    user=self.request.user,# force_unlink=force_unlink,
                 )
                 self.asset.licences.clear()
                 for licence in self.asset_form.cleaned_data.get(

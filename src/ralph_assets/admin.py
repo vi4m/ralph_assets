@@ -19,7 +19,7 @@ from ralph import middleware
 from ralph_assets import models_assets
 from ralph_assets import models_assets as models
 from ralph_assets.models import (
-    Asset,
+    DCAsset, BOAsset,
     AssetCategory,
     AssetCategoryType,
     AssetManufacturer,
@@ -168,12 +168,22 @@ class AssetRegionFilter(SimpleListFilter):
             return queryset
 
 
-class AssetAdminForm(forms.ModelForm):
+class DCAssetAdminForm(forms.ModelForm):
     class Meta:
-        model = models_assets.Asset
+        model = models_assets.DCAsset
 
     def __init__(self, *args, **kwargs):
-        super(AssetAdminForm, self).__init__(*args, **kwargs)
+        super(DCAssetAdminForm, self).__init__(*args, **kwargs)
+        # return only valid regions for current user
+        self.fields['region'].queryset = middleware.get_actual_regions()
+
+
+class BOAssetAdminForm(forms.ModelForm):
+    class Meta:
+        model = models_assets.BOAsset
+
+    def __init__(self, *args, **kwargs):
+        super(BOAssetAdminForm, self).__init__(*args, **kwargs)
         # return only valid regions for current user
         self.fields['region'].queryset = middleware.get_actual_regions()
 
@@ -340,8 +350,8 @@ class IPAddressInline(ForeignKeyAutocompleteTabularInline):
         'network': ['^name'],
     }
 
-class ChildAssetInline(ForeignKeyAutocompleteTabularInline):
-    model = models.Asset
+class ChildDCAssetInline(ForeignKeyAutocompleteTabularInline):
+    model = models.DCAsset
     edit_separately = True
     readonly_fields = ('hostname', 'model', 'sn', 'remarks', 'last_seen',)
     # exclude = ('name2', 'created', 'modified', 'boot_firmware', 'barcode',
@@ -358,10 +368,10 @@ class ChildAssetInline(ForeignKeyAutocompleteTabularInline):
 
 
 
-class AssetAdmin(ModelAdmin):
+class DCAssetAdmin(ModelAdmin):
     fields = (
         'sn',
-        'type',
+        # 'type',
         'model',
         'status',
         'warehouse',
@@ -391,7 +401,7 @@ class AssetAdmin(ModelAdmin):
         EthernetInline,
         StorageInline,
         IPAddressInline,
-        ChildAssetInline,
+        ChildDCAssetInline,
         # RolePropertyValueInline,
         InboundConnectionInline,
         OutboundConnectionInline,
@@ -399,17 +409,65 @@ class AssetAdmin(ModelAdmin):
     search_fields = (
         'sn',
         'barcode',
-        'device_info__ralph_device_id',
     )
-    list_display = ('sn', 'model', 'type', 'barcode', 'status', 'deleted',)
-    list_filter = ('type', AssetRegionFilter)
-    form = AssetAdminForm
+    list_display = ('sn', 'model','barcode', 'status', 'deleted',)
+    list_filter = (AssetRegionFilter,)
+    form = DCAssetAdminForm
 
     def has_delete_permission(self, request, obj=None):
         return False
 
 
-admin.site.register(Asset, AssetAdmin)
+admin.site.register(DCAsset, DCAssetAdmin)
+
+
+class BOAssetAdmin(ModelAdmin):
+    fields = (
+        'sn',
+        # 'type',
+        'model',
+        'status',
+        'warehouse',
+        'region',
+        'source',
+        'invoice_no',
+        'order_no',
+        'price',
+        'support_price',
+        'support_type',
+        'support_period',
+        'support_void_reporting',
+        'provider',
+        'remarks',
+        'barcode',
+        'request_date',
+        'provider_order_date',
+        'delivery_date',
+        'invoice_date',
+        'production_use_date',
+        'production_year',
+        'deleted',
+
+        'license_key',
+        'coa_number',
+        'coa_oem_os',
+        'imei',
+        'purpose'
+    )
+
+    search_fields = (
+        'sn',
+        'barcode',
+    )
+    list_display = ('sn', 'model', 'barcode', 'status', 'deleted',)
+    list_filter = (AssetRegionFilter,)
+    form = BOAssetAdminForm
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+admin.site.register(BOAsset, BOAssetAdmin)
 
 
 class AssetModelAdmin(ModelAdmin):

@@ -23,7 +23,7 @@ from ralph_assets.models_assets import (
     Asset,
     AssetModel,
     AssetStatus,
-    DeviceInfo,
+    # DeviceInfo,
     MODE2ASSET_TYPE,
 )
 from ralph_assets.models_dc_assets import DataCenter
@@ -258,7 +258,7 @@ class StatusModelReport(BaseReport):
                 unique=False,
             )
 
-
+# FIXME: remove it da fuck
 class LinkedDevicesReport(BaseReport):
     slug = 'asset-device'
     name = _('Asset - device')
@@ -486,7 +486,7 @@ class ReportDetail(Report, ReportViewBase):
         except (DataCenter.DoesNotExist, ValueError):
             self.dc = None
         self.slug = kwargs.pop('slug')
-        self.asset_type = MODE2ASSET_TYPE.get(kwargs.get('mode'), None)
+        # self.asset_type = MODE2ASSET_TYPE.get(kwargs.get('mode'), None)
         self.report = self.get_report(self.slug)
         if not self.report:
             raise Http404

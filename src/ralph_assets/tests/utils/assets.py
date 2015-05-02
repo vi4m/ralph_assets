@@ -359,7 +359,7 @@ class BaseAssetFactory(DjangoModelFactory):
 
 class DCAssetFactory(BaseAssetFactory):
     type = AssetType.data_center
-    device_info = SubFactory(DeviceInfoFactory)
+    # device_info = SubFactory(DeviceInfoFactory)
 
     @lazy_attribute
     def slots(self):
@@ -369,18 +369,18 @@ class DCAssetFactory(BaseAssetFactory):
 class BOAssetFactory(BaseAssetFactory):
     type = AssetType.back_office
     hostname = Sequence(lambda n: 'XXXYY{:05}'.format(n))
-    office_info = SubFactory(OfficeInfoFactory)
+    # office_info = SubFactory(OfficeInfoFactory)
 
 
-def get_device_info_dict():
-    device_info = DeviceInfoFactory()
-    device_info_keys = {'orientation', 'position', 'ralph_device_id'}
-    device_info_data = {
-        k: getattr(device_info, k) for k in device_info_keys
-    }
-    device_info_data.update({
-        'data_center': device_info.data_center.id,
-        'rack': device_info.rack.id,
-        'server_room': device_info.server_room.id,
-    })
-    return device_info_data
+# def get_device_info_dict():
+#     device_info = DeviceInfoFactory()
+#     device_info_keys = {'orientation', 'position', 'ralph_device_id'}
+#     device_info_data = {
+#         k: getattr(device_info, k) for k in device_info_keys
+#     }
+#     device_info_data.update({
+#         'data_center': device_info.data_center.id,
+#         'rack': device_info.rack.id,
+#         'server_room': device_info.server_room.id,
+#     })
+#     return device_info_data

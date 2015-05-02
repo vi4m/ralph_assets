@@ -188,31 +188,31 @@ class DeviceLookup(RestrictedLookupChannel):
         )
 
 
-class LinkedDeviceNameLookup(DeviceLookup):
-    model = Asset
+# class LinkedDeviceNameLookup(DeviceLookup):
+#     model = Asset
 
-    def get_query(self, text, request):
-        matched_devices_ids = Device.objects.values_list(
-            'id', flat=True
-        ).filter(name__icontains=text)
-        query = Q(
-            Q(barcode__icontains=text) |
-            Q(sn__icontains=text) |
-            Q(device_info__ralph_device_id__in=matched_devices_ids)
-        )
-        return self.get_base_objects().filter(query).order_by()[:10]
+#     def get_query(self, text, request):
+#         matched_devices_ids = Device.objects.values_list(
+#             'id', flat=True
+#         ).filter(name__icontains=text)
+#         query = Q(
+#             Q(barcode__icontains=text) |
+#             Q(sn__icontains=text)
+#             # Q(device_info__ralph_device_id__in=matched_devices_ids)
+#         )
+#         return self.get_base_objects().filter(query).order_by()[:10]
 
-    def format_item_display(self, obj):
-        item = super(LinkedDeviceNameLookup, self).format_item_display(obj)
-        try:
-            hostname = obj.linked_device.name
-        except AttributeError:
-            pass
-        else:
-            item += '<span class="device-hostname">{hostname}</span>'.format(
-                hostname=escape(hostname),
-            )
-        return item
+#     def format_item_display(self, obj):
+#         item = super(LinkedDeviceNameLookup, self).format_item_display(obj)
+#         try:
+#             hostname = obj.linked_device.name
+#         except AttributeError:
+#             pass
+#         else:
+#             item += '<span class="device-hostname">{hostname}</span>'.format(
+#                 hostname=escape(hostname),
+#             )
+#         return item
 
 
 class FreeLicenceLookup(RestrictedLookupChannel):
@@ -460,15 +460,16 @@ class BODeviceLookup(DeviceLookup):
 
 class AssetLookupFuzzy(AssetLookupBase):
     def get_query(self, query, request):
-        dev_ids = Device.objects.filter(
-            model__type=DeviceType.unknown,
-        ).values_list('id', flat=True)
+        # FIXME?
+        # dev_ids = Device.objects.filter(
+            # model__type=DeviceType.unknown,
+        # ).values_list('id', flat=True)
         assets = Asset.objects.select_related(
             'model__name',
         ).filter(
-            Q(device_info__ralph_device_id=None) |
-            Q(device_info__ralph_device_id__in=dev_ids),
-        ).filter(part_info=None)
+            # Q(device_info__ralph_device_id=None) |
+            # Q(device_info__ralph_device_id__in=dev_ids),
+        )#.filter(part_info=None)
 
         def comparator(asset):
             seq = "".join(
