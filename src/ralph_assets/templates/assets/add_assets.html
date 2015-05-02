@@ -6,9 +6,24 @@
 
 {% block content %}
 
+
+
 <div class="row-fluid">
   <h3>{% block form_title %}{% endblock %}</h3>
 </div>
+
+
+<!-- FIXME: do it right, only mockup !-->
+<div class="row-fluid">
+<ul class="nav nav-tabs nav-submenu">
+  <li class="active menu-item-hardware"> <a href="/assets/dc/edit/device/{{asset.id}}">Generic info</a>
+  <li class="active menu-item-hardware"> <a href="/assets/dc/edit/device/{{asset.id}}/components">Components</a>
+  <li class="active menu-item-hardware"> <a href="/assets/dc/search">Addresses</a>
+  <li class="active menu-item-hardware"> <a href="/assets/dc/search">Deployment</a>
+</li> </ul>
+</div>
+
+{% block edit_device_content %}
 
 <div class="row-fluid">
   <div class="span12">
@@ -101,5 +116,7 @@
 </div>
 
 {% include 'assets/attachment_deletion.html' with attachment_parent=asset parent_name='asset'%}
+
+{% endblock edit_device_content %}
 
 {% endblock %}

@@ -1,0 +1,34 @@
+{% extends "ui/add-device.html" %}
+{% load icons %}
+{% load url from future %}
+
+{% block content %}
+<table class="table table-striped table-bordered details-components">
+    <thead><tr>
+        <th width="16"></th>
+        <th>Label</th>
+        <th>Version</th>
+    </tr></thead>
+    <tbody>
+        {% for item in components %}
+        {% if item.model.is_software %}
+        <tr>
+            <td><i class="fugue-icon {{ item.icon }}"></i></td>
+            {%  if item.hrefinfo %}
+                <td><a href="{{ item.hrefinfo }}" style="white-space:nowrap">
+                        {{ item.label }}
+                     </a>
+                </td>
+            {%  else %}
+                <td>{{ item.label }}</td>
+            {%  endif %}
+            <td>
+                {{ item.version|default:'–' }}
+            </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+    </tbody>
+</table>
+
+{% endblock content %}

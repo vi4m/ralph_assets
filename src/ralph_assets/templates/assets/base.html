@@ -53,6 +53,8 @@
     {% if sidebar %}
         {% sidebar_menu sidebar active_sidebar_item %}
     {% endif %}
+    <div style='display: none' id='search-sidebar'>
     {% block sidebar_search %}
     {% endblock %}
+    </div>
 {% endblock %}
