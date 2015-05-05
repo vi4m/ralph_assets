@@ -10,7 +10,6 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from ralph_assets.models import Asset
-#, DeviceInfo
 
 
 SAVE_PRIORITY = 215

@@ -110,13 +110,13 @@ class AssetBulkEdit(
 
     def initial_forms(self, formset, queryset):
         for idx, asset in enumerate(queryset):
-            if asset.office_info:
-                for field in ['purpose']:
-                    if field not in formset.forms[idx].fields:
-                        continue
-                    formset.forms[idx].fields[field].initial = (
-                        getattr(asset.office_info, field, None)
-                    )
+            # if asset.office_info:
+                # for field in ['purpose']:
+                    # if field not in formset.forms[idx].fields:
+                        # continue
+                    # formset.forms[idx].fields[field].initial = (
+                        # getattr(asset.office_info, field, None)
+                    # )
             self._initialize_licences(formset.forms[idx], asset)
 
     def _initialize_licences(self, form, asset):

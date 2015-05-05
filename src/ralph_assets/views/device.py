@@ -97,9 +97,9 @@ class AddDevice(HardwareModeMixin, SubmoduleModeMixin, AssetsBase):
             # except ValidationError as e:
             #     return super(AddDevice, self).get(*args, **kwargs)
 
-            force_unlink = self.additional_info.cleaned_data.get(
-                'force_unlink', None,
-            )
+            # force_unlink = self.additional_info.cleaned_data.get(
+                # 'force_unlink', None,
+            # )
             if self.validate_barcodes(
                 self.asset_form.cleaned_data['barcode'],
             ) and not force_unlink:

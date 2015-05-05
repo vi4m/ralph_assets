@@ -91,8 +91,6 @@ class RequiredModelWithTypeMixin(object):
         return cls(**kwargs)
 
 
-
-
 class DataCenter(Named):
 
     visualization_cols_num = models.PositiveIntegerField(
@@ -181,6 +179,7 @@ class Rack(Named.NonUnique):
         )
 
     def get_root_assets(self, side=None):
+        # FIXME: don't know what this function does.
         from ralph_assets.models_assets import Asset
         filter_kwargs = {
             'device_info__rack': self,

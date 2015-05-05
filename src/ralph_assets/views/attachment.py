@@ -19,8 +19,7 @@ from ralph_assets.views.base import (
     AssetsBase,
     ActiveSubmoduleByAssetMixin,
 )
-from ralph_assets.models_assets import Attachment
-#, ASSET_TYPE2MODE
+from ralph_assets.models_assets import Attachment, ASSET_TYPE2MODE
 
 
 logger = logging.getLogger(__name__)

@@ -16,7 +16,6 @@ from ralph_assets.models import (
     AssetLookupFuzzy,
 )
 
-
 class AssetLookup(DCDeviceLookup):
     pass
 

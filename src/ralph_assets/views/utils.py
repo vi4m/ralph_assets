@@ -85,10 +85,10 @@ def _create_assets(creator_profile, asset_form, mode):
             # device_info = DeviceInfo(**cleaned_additional_info)
             # device_info.save(user=creator_profile.user)
             # asset.device_info = device_info
-            asset.save(user=creator_profile.user, force_unlink=force_unlink)
+            asset.save(user=creator_profile.user)#, force_unlink=force_unlink)
         elif mode == 'back_office':
-            # FIXME: wtf?
-            _move_data(asset_data, cleaned_additional_info, ['purpose'])
+            # FIXME:
+            # _move_data(asset_data, cleaned_additional_info, ['purpose'])
             asset = BOAsset(created_by=creator_profile, **asset_data)
             # office_info = OfficeInfo()
             # office_info.__dict__.update(**cleaned_additional_info)
@@ -96,7 +96,7 @@ def _create_assets(creator_profile, asset_form, mode):
             # office_info.save(user=creator_profile.user)
             # asset.office_info = office_info
             asset.save(user=creator_profile.user)
-        asset.save(force_unlink=force_unlink)
+        asset.save()#force_unlink=force_unlink)
         update_management_ip(asset, asset_form.cleaned_data)
         assets_ids.append(asset.id)
     return assets_ids

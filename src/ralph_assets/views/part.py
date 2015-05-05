@@ -138,8 +138,8 @@ class EditPart(HardwareModeMixin, SubmoduleModeMixin, AssetsBase):
             Asset.admin_objects,
             id=kwargs.get('asset_id')
         )
-        if self.asset.device_info:  # it isn't part asset
-            raise Http404()
+        # if self.asset.device_info:  # it isn't part asset
+            # raise Http404()
         self.asset_form = EditPartForm(instance=self.asset, mode=self.mode)
         self.write_office_info2asset_form()
         self.part_info_form = BasePartForm(

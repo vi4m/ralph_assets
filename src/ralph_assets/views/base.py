@@ -27,7 +27,7 @@ from ralph.account.models import Perm, ralph_permission
 from ralph_assets import forms as assets_forms
 from ralph_assets.app import Assets as app
 from ralph_assets.models_assets import AssetType
-from ralph_assets.models import DCAsset, BOAsset
+from ralph_assets.models import DCAsset, BOAsset, Asset
 from ralph_assets.forms import OfficeForm
 
 MAX_PAGE_SIZE = 65535

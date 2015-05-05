@@ -86,8 +86,8 @@ def dcasset_fieldset():
             'hostname','category', 'model', 'purchase_order', 'niw', 'barcode',
             'device_environment', 'service',
             'sn', 'warehouse', 'location', 'status', 'task_url',
-            'loan_end_date', 'remarks', 'service', 'property_of',
-            'region', 'rack', 'position'
+            'loan_end_date', 'remarks', 'property_of',
+            'region',
         ]),
         ('Financial Info', [
             'order_no', 'invoice_date', 'invoice_no', 'price', 'provider',
@@ -107,7 +107,7 @@ def boasset_fieldset():
     ('Basic Info', [
         'category', 'model', 'purchase_order', 'niw', 'barcode',
         'sn', 'warehouse', 'location', 'status', 'task_url',
-        'loan_end_date', 'remarks', 'service_name', 'property_of',
+        'loan_end_date', 'remarks', 'property_of',
         'region',
     ]),
     ('Financial Info', [
@@ -135,7 +135,7 @@ def asset_search_back_office_fieldsets():
             'collapsed': [
                 'warehouse', 'task_url', 'category', 'loan_end_date_from',
                 'loan_end_date_to', 'niw', 'manufacturer',
-                'service_name', 'location', 'remarks',
+                'location', 'remarks',
             ],
         }),
         ('User data', {
@@ -171,7 +171,7 @@ def asset_search_dc_fieldsets():
             ],
             'collapsed': [
                 'status', 'task_url', 'category', 'loan_end_date_from',
-                'loan_end_date_to', 'niw', 'service_name',
+                'loan_end_date_to', 'niw',
                 'location', 'remarks',
             ],
         }),
@@ -523,7 +523,7 @@ class BackOfficeBulkEditAssetForm(BulkEditAssetForm):
         fields = (
             'status', 'barcode', 'hostname', 'model',
             'purchase_order', 'user', 'owner', 'warehouse', 'sn',
-            'property_of', 'region', 'purpose', 'remarks', 'service_name',
+            'property_of', 'region', 'purpose', 'remarks',
             'invoice_no', 'invoice_date', 'price', 'provider', 'task_url',
             'deprecation_rate', 'order_no', 'source', 'deprecation_end_date',
             'licences',
@@ -572,7 +572,7 @@ class DataCenterBulkEditAssetForm(BulkEditAssetForm):
     class Meta(BulkEditAssetForm.Meta):
         fields = (
             'status', 'barcode', 'model', 'purchase_order', 'user', 'owner',
-            'warehouse', 'sn', 'property_of', 'remarks', 'service_name',
+            'warehouse', 'sn', 'property_of', 'remarks',
             'invoice_no', 'invoice_date', 'price', 'provider', 'task_url',
             'deprecation_rate', 'order_no', 'source', 'deprecation_end_date',
         )
@@ -872,9 +872,9 @@ class BaseAssetForm(ModelForm):
     def __init__(self, *args, **kwargs):
         super(BaseAssetForm, self).__init__(*args, **kwargs)
         instance = kwargs.get('instance')
-        if self.edit_management_ip:
-            self.fields['management_ip'] = IPWithHostField(required=False)
-            self.fieldsets['Basic Info'].append('management_ip')
+        # if self.edit_management_ip:
+        # self.fields['management_ip'] = IPWithHostField(required=False)
+            # self.fieldsets['Basic Info'].append('management_ip')
             # if instance and self.edit_management_ip:
                 # device = instance.get_ralph_device()
                 # if device:
@@ -961,7 +961,6 @@ class BaseAddAssetForm(DependencyAssetForm, BaseAssetForm):
             'remarks',
             'request_date',
             'required_support',
-            'service_name',
             'source',
             'status',
             'task_url',
@@ -1128,7 +1127,6 @@ class BaseEditAssetForm(DependencyAssetForm, BaseAssetForm):
             'remarks',
             'request_date',
             'required_support',
-            'service_name',
             'sn',
             'source',
             'status',
@@ -1318,6 +1316,7 @@ class AddDeviceForm(BaseAddAssetForm, MultivalFieldForm):
         validators=[validate_imeis],
     )
 
+
     def __init__(self, *args, **kwargs):
         super(AddDeviceForm, self).__init__(*args, **kwargs)
         self.fields['region'] = ModelChoiceField(queryset=get_actual_regions())
@@ -1368,6 +1367,7 @@ class BackOfficeAddDeviceForm(AddDeviceForm):
     status = ChoiceField(
         choices=AssetStatus.back_office(required=True), required=False,
     )
+
 
     def __init__(self, *args, **kwargs):
         super(BackOfficeAddDeviceForm, self).__init__(*args, **kwargs)
@@ -1438,6 +1438,8 @@ class DataCenterAddDeviceForm(AddDeviceForm):
         parent_field=server_room,
     )
 
+    management_ip = IPWithHostField(required=False)
+
     # def __init__(self, *args, **kwargs):
     #     kwargs.pop('mode')
     #     exclude = kwargs.pop('exclude', None)
@@ -1446,6 +1448,7 @@ class DataCenterAddDeviceForm(AddDeviceForm):
     def __init__(self, *args, **kwargs):
         super(DataCenterAddDeviceForm, self).__init__(*args, **kwargs)
         self.fieldsets = dcasset_fieldset()
+        self.fields['management_ip'] = IPWithHostField(required=False)
         # for after, field in (
         #     ('property_of', 'service'),
         #     ('service', 'device_environment'),
@@ -1514,7 +1517,7 @@ class BackOfficeEditDeviceForm(ReadOnlyFieldsMixin, EditDeviceForm):
         ('Basic Info', [
             'category', 'model', 'purchase_order', 'niw', 'barcode',
             'sn', 'imei', 'warehouse', 'location', 'status', 'task_url',
-            'loan_end_date', 'purpose', 'remarks', 'service_name',
+            'loan_end_date', 'purpose', 'remarks',
             'property_of', 'hostname', 'created', 'service',
             'device_environment', 'region',
         ]),
@@ -1574,13 +1577,20 @@ class BackOfficeEditDeviceForm(ReadOnlyFieldsMixin, EditDeviceForm):
 
 
 class DataCenterEditDeviceForm(ReadOnlyFieldsMixin, EditDeviceForm):
-
     fieldsets = OrderedDict([
+        ('DC Location', [
+            'data_center',
+            'server_room',
+            'rack',
+            'orientation',
+            'position',
+            'slot_no',
+            ]),
         ('Basic Info', [
             'management_ip',  'category', 'model', 'purchase_order',
             'niw', 'barcode', 'sn', 'warehouse', 'location', 'status',
-            'task_url', 'loan_end_date', 'remarks', 'service_name',
-            'property_of', 'hostname', 'service', 'device_environment',
+            'task_url', 'loan_end_date', 'remarks',
+             'hostname', 'service', 'device_environment',
             'region',
         ]),
         ('Financial Info', [
@@ -1606,9 +1616,44 @@ class DataCenterEditDeviceForm(ReadOnlyFieldsMixin, EditDeviceForm):
     edit_management_ip = True
 
     class Meta(BaseEditAssetForm.Meta):
+        model = DCAsset
         fields = BaseEditAssetForm.Meta.fields + (
-            'device_environment', 'service', 'hostname',
+            'hostname',
+            'device_environment',
+            'service',
+            'data_center',
+            'server_room',
+            'rack',
+            'orientation',
+            'position',
+            'slot_no',
         )
+
+
+
+    data_center = ModelChoiceField(
+        label=_('data center'),
+        queryset=DataCenter.objects.all(),
+        required=True,
+        widget=Select(attrs={'id': 'data-center-selection'}),
+    )
+    server_room = CascadeModelChoiceField(
+        ('ralph_assets.models', 'ServerRoomLookup'),
+        label=_('Server room'),
+        queryset=ServerRoom.objects.all(),
+        required=True,
+
+        attrs={'id': 'server-room-selection'},
+        parent_field=data_center,
+    )
+    rack = CascadeModelChoiceField(
+        ('ralph_assets.models', 'RackLookup'),
+        label=_('Rack'),
+        queryset=Rack.objects.all(),
+        required=False,
+
+        parent_field=server_room,
+    )
     # FIXME:
     # device_environment = ModelChoiceField(
     #     required=True,
@@ -1623,6 +1668,8 @@ class DataCenterEditDeviceForm(ReadOnlyFieldsMixin, EditDeviceForm):
     status = ChoiceField(
         choices=AssetStatus.data_center(required=True), required=False,
     )
+
+    management_ip = IPWithHostField(required=False)
 
     def __init__(self, *args, **kwargs):
         super(DataCenterEditDeviceForm, self).__init__(*args, **kwargs)
@@ -1817,9 +1864,6 @@ class SearchAssetForm(Form):
         }),
         label='',
         input_formats=RALPH_DATE_FORMAT_LIST,
-    )
-    service_name = ModelChoiceField(
-        queryset=Service.objects.all(), empty_label='----', required=False,
     )
     warehouse = AutoCompleteSelectField(
         LOOKUPS['asset_warehouse'],

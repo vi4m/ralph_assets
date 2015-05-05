@@ -18,6 +18,7 @@ from django.db.models import Q
 from ralph.business.models import Department, PuppetVenture, PuppetVentureRole
 from ralph.middleware import get_actual_regions
 from ralph_assets.models_assets import *
+
 # (
 #     Asset,
 #     AssetCategory,
@@ -63,7 +64,7 @@ from django.db import models as db
 from django.utils.html import escape
 
 #from ralph.util import presentation
-from ralph_assets.models_assets import ServiceCatalog, DeviceEnvironment
+from ralph_assets.models_assets import Service, DeviceEnvironment
 
 
 class RestrictedLookupChannel(LookupChannel):
@@ -100,8 +101,7 @@ class RestrictedLookupChannel(LookupChannel):
 
 
 class ServiceCatalogLookup(RestrictedLookupChannel):
-    model = ServiceCatalog
-    #model = DeviceEnvironment
+    model = Service
 
 
 class DeviceEnvironmentLookup(RestrictedLookupChannel):
@@ -109,9 +109,9 @@ class DeviceEnvironmentLookup(RestrictedLookupChannel):
 
     def get_query(self, query, request):
         try:
-            service = ServiceCatalog.objects.get(id=query)
-        except ServiceCatalog.DoesNotExist:
-            envs = ServiceCatalog.objects.none()
+            service = Service.objects.get(id=query)
+        except Service.DoesNotExist:
+            envs = Service.objects.none()
         else:
             envs = service.get_environments()
         return envs

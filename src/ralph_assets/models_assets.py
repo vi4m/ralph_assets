@@ -8,14 +8,27 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
+from collections import namedtuple
+from dateutil.relativedelta import relativedelta
+from itertools import chain
 import datetime
+import ipaddr
 import logging
 import os
 import re
-from collections import namedtuple
-from itertools import chain
+import urllib
 
-from dateutil.relativedelta import relativedelta
+from django.db import models as db
+from django.utils.translation import ugettext_lazy as _
+from lck.django.common.models import (
+    MACAddressField,
+    SavePrioritized,
+    TimeTrackable,
+    WithConcurrentGetOrCreate,
+)
+from lck.django.choices import Choices
+from django.utils.html import escape
+from polymorphic import PolymorphicModel
 
 from dj.choices import Country
 from django.contrib.auth.models import User
@@ -51,34 +64,32 @@ from ralph_assets.models_util import (
     RegionalizedDBManager,
 )
 from ralph_assets.utils import iso2_to_iso3
-
-
 from ralph_assets.models_dc_assets import (  # noqa
     DataCenter,
     Orientation,
     Rack,
     ServerRoom,
+    VALID_SLOT_NUMBER_FORMAT
 )
 from ralph_assets.models_util import SavingUser, LastSeen
-from ralph.cmdb.models_ci import *
+from ralph.cmdb.models_ci import CI
 from ralph.business.models import PuppetVenture, PuppetVentureRole
 
-
-from django.db import models as db
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError
+from django.core.urlresolvers import reverse
+from django.core.cache import cache
 from django.utils.translation import ugettext_lazy as _
 from lck.django.common.models import (
-    MACAddressField,
-    SavePrioritized,
-    TimeTrackable,
-    WithConcurrentGetOrCreate,
+    TimeTrackable, Named, WithConcurrentGetOrCreate, SavePrioritized,
 )
-from lck.django.choices import Choices
-from django.utils.html import escape
-from polymorphic import PolymorphicModel
+import ralph.networks.utils as network
 
-
+from datetime import datetime
+from ralph.scan.models import ScanSummary
 
 logger = logging.getLogger(__name__)
+
 
 SAVE_PRIORITY = 0
 ASSET_HOSTNAME_TEMPLATE = getattr(settings, 'ASSET_HOSTNAME_TEMPLATE', None)
@@ -87,6 +98,111 @@ if not ASSET_HOSTNAME_TEMPLATE:
 HOSTNAME_FIELD_HELP_TIP = getattr(settings, 'HOSTNAME_FIELD_HELP_TIP', '')
 
 REPORT_LANGUAGES = getattr(settings, 'REPORT_LANGUAGES', None)
+
+MAC_PREFIX_BLACKLIST = set([
+    '505054', '33506F', '009876', '000000', '00000C', '204153', '149120',
+    '020054', 'FEFFFF', '1AF920', '020820', 'DEAD2C', 'FEAD4D',
+])
+CPU_CORES = {
+    '5160': 2,
+    'E5320': 4,
+    'E5430': 4,
+    'E5504': 4,
+    'E5506': 4,
+    'E5520': 4,
+    'E5540': 4,
+    'E5630': 4,
+    'E5620': 4,
+    'E5640': 4,
+    'E5645': 6,
+    'E5649': 6,
+    'L5520': 4,
+    'L5530': 4,
+    'L5420': 4,
+    'L5630': 4,
+    'X5460': 4,
+    'X5560': 4,
+    'X5570': 4,
+    'X5650': 6,
+    'X5660': 6,
+    'X5670': 6,
+    'E5-2640': 6,
+    'E5-2670': 8,
+    'E5-2630': 6,
+    'E5-2650': 8,
+    'E7-8837': 8,
+    'E7- 8837': 8,
+    'E7-4870': 10,
+    'E7- 4870': 10,
+    'Processor 275': 2,
+    'Processor 8216': 2,
+    'Processor 6276': 16,
+    'Dual-Core': 2,
+    'Quad-Core': 4,
+    'Six-Core': 6,
+    '2-core': 2,
+    '4-core': 4,
+    '6-core': 6,
+    '8-core': 8,
+}
+CPU_VIRTUAL_LIST = {
+    'bochs',
+    'qemu',
+    'virtual',
+    'vmware',
+    'xen',
+}
+
+
+class CreatableFromString(object):
+    """Simple objects that can be created from string."""
+
+    @classmethod  # Decided not to play with abstractclassmethods
+    def create_from_string(cls, asset_type, string_name):
+        raise NotImplementedError
+
+
+class Service(Named, TimeTrackable, CreatableFromString):
+    # Fixme: let's do service catalog replacement from that
+    profit_center = models.CharField(max_length=1024, blank=True)
+    cost_center = models.CharField(max_length=1024, blank=True)
+
+    @classmethod
+    def create_from_string(cls, string_name, *args, **kwargs):
+        return cls(name=string_name)
+
+
+class DeviceEnvironment(Named, TimeTrackable, CreatableFromString):
+    service = models.ForeignKey(Service)
+
+
+# Base object for non-assets models like Databases, and others.
+class BaseItem(SavingUser):
+    name = models.CharField(verbose_name=_("name"), max_length=255)
+    # puppet_venture = models.ForeignKey(
+    #     "business.PuppetVenture",
+    #     verbose_name=_("venture"),
+    #     null=True,
+    #     blank=True,
+    #     default=None,
+    #     on_delete=models.SET_NULL,
+    # )
+    service = models.ForeignKey(
+        Service,
+        default=None,
+        null=True,
+        on_delete=db.PROTECT,
+    )
+    device_environment = models.ForeignKey(
+        DeviceEnvironment,
+        default=None,
+        null=True,
+        on_delete=db.PROTECT,
+    )
+
+    class Meta:
+        abstract = True
+        ordering = ('name',)
 
 
 def _replace_empty_with_none(obj, fields):
@@ -114,13 +230,6 @@ class AttachmentMixin(object):
         for attachment in attachments:
             yield attachment
 
-
-class CreatableFromString(object):
-    """Simple objects that can be created from string."""
-
-    @classmethod  # Decided not to play with abstractclassmethods
-    def create_from_string(cls, asset_type, string_name):
-        raise NotImplementedError
 
 
 class Sluggy(models.Model):
@@ -286,7 +395,7 @@ class AssetModel(
     created at
     '''
     manufacturer = models.ForeignKey(
-        AssetManufacturer, on_delete=models.PROTECT, blank=True, null=True)
+        AssetManufacturer, on_delete=db.PROTECT, blank=True, null=True)
     category = models.ForeignKey(
         'AssetCategory', null=True, related_name='models'
     )
@@ -440,14 +549,6 @@ class Attachment(SavingUser, TimeTrackable):
         super(Attachment, self).save(*args, **kwargs)
 
 
-class Service(Named, TimeTrackable, CreatableFromString):
-    profit_center = models.CharField(max_length=1024, blank=True)
-    cost_center = models.CharField(max_length=1024, blank=True)
-
-    @classmethod
-    def create_from_string(cls, string_name, *args, **kwargs):
-        return cls(name=string_name)
-
 
 class BudgetInfo(
     TimeTrackable,
@@ -555,6 +656,27 @@ class Gap(object):
         return items
 
 
+
+# class Service(db.Object):
+#     """
+#     """
+#     name = db.CharField()
+
+#     def __unicode__(self):
+#         return self.name
+
+#     def get_environments(self):
+#         env_ids_from_service = CIRelation.objects.filter(
+#             parent=self.id,
+#         ).values('child__id')
+#         envs = DeviceEnvironment.objects.filter(id__in=env_ids_from_service)
+#         return envs
+
+
+# class Environment(db.Object):
+#     pass
+
+
 class Asset(
     AttachmentMixin,
     Regionalized,
@@ -580,7 +702,7 @@ class Asset(
     # )
     # type = models.PositiveSmallIntegerField(choices=AssetType())
     model = models.ForeignKey(
-        'AssetModel', on_delete=models.PROTECT, related_name='assets',
+        'AssetModel', on_delete=db.PROTECT, related_name='assets',
     )
     source = models.PositiveIntegerField(
         verbose_name=_("source"), choices=AssetSource(), db_index=True,
@@ -627,7 +749,7 @@ class Asset(
         max_length=200, null=True, blank=True, default=None,
         verbose_name='Inventory number',
     )
-    warehouse = models.ForeignKey(Warehouse, on_delete=models.PROTECT)
+    warehouse = models.ForeignKey(Warehouse, on_delete=db.PROTECT)
     location = models.CharField(max_length=128, null=True, blank=True)
     request_date = models.DateField(null=True, blank=True)
     delivery_date = models.DateField(null=True, blank=True)
@@ -656,7 +778,7 @@ class Asset(
         max_length=64,
         default=0,
     )
-    service_name = models.ForeignKey(Service, null=True, blank=True)
+    #service_name = models.ForeignKey(Service, null=True, blank=True)
     admin_objects = AssetAdminManager()
     # admin_objects_dc = DCAdminManager()
     # admin_objects_bo = BOAdminManager()
@@ -668,7 +790,7 @@ class Asset(
     )
     property_of = models.ForeignKey(
         AssetOwner,
-        on_delete=models.PROTECT,
+        on_delete=db.PROTECT,
         null=True,
         blank=True,
     )
@@ -697,7 +819,7 @@ class Asset(
         blank=True,
         default=None,
         null=True,
-        on_delete=models.PROTECT,
+        on_delete=db.PROTECT,
     )
     hostname = models.CharField(
         blank=True,
@@ -709,17 +831,21 @@ class Asset(
     )
     required_support = models.BooleanField(default=False)
     service = models.ForeignKey(
-        ServiceCatalog,
+        Service,
         default=None,
         null=True,
-        on_delete=models.PROTECT,
+        on_delete=db.PROTECT,
     )
     device_environment = models.ForeignKey(
         DeviceEnvironment,
         default=None,
         null=True,
-        on_delete=models.PROTECT,
+        on_delete=db.PROTECT,
     )
+
+    #class Meta:
+        # it can't be abstract, since Component(both DC and BO) has foreign key to Asset
+        # but it doesn't matter.
 
     def __unicode__(self):
         return "{} - {} - {}".format(self.model, self.sn, self.barcode)
@@ -779,7 +905,9 @@ class Asset(
     #     asset.save()
     #     return asset
 
-    # def get_data_type(self):
+    def get_data_type(self):
+        # FIXME - merge part management
+        return 'device'
     #     if self.part_info:
     #         return 'part'
     #     else:
@@ -854,12 +982,14 @@ class Asset(
         return super(Asset, self).save(commit=commit, *args, **kwargs)
 
     def get_data_icon(self):
-        if self.get_data_type() == 'device':
-            return 'fugue-computer'
-        elif self.get_data_type() == 'part':
-            return 'fugue-box'
-        else:
-            raise UserWarning('Unknown asset data type!')
+        # FIXME:
+        return 'fugue-computer'
+        # if self.get_data_type() == 'device':
+            # return 'fugue-computer'
+        # elif self.get_data_type() == 'part':
+            # return 'fugue-box'
+        # else:
+            # raise UserWarning('Unknown asset data type!')
 
     # @property
     # def type_is_data_center(self):
@@ -983,7 +1113,7 @@ class Asset(
 
     def get_absolute_url(self):
         return reverse('device_edit', kwargs={
-            'mode': ASSET_TYPE2MODE[self.type],
+            'mode': 'dc',
             'asset_id': self.id,
         })
 
@@ -1009,10 +1139,6 @@ class Asset(
         self.hostname = last_hostname.formatted_hostname(fill=counter_length)
         if commit:
             self.save()
-
-    @property
-    def asset_type(self):
-        return self.type
 
     def get_related_assets(self):
         """Returns the children of a blade chassis"""
@@ -1057,7 +1183,8 @@ class Asset(
         return visualization_url
 
 
-class DCAsset(Asset, HistoryMixin, TimeTrackable, SavingUser, SoftDeletable):
+class DCAsset(Asset):
+    #, HistoryMixin, TimeTrackable, SavingUser, SoftDeletable):
     # ralph_device_id = models.IntegerField(
     #     verbose_name=_("Ralph device id"),
     #     null=True,
@@ -1067,11 +1194,9 @@ class DCAsset(Asset, HistoryMixin, TimeTrackable, SavingUser, SoftDeletable):
     # )
     u_level = models.CharField(max_length=10, null=True, blank=True)
     u_height = models.CharField(max_length=10, null=True, blank=True)
-    data_center = models.ForeignKey(DataCenter, null=True, blank=False)
-    server_room = models.ForeignKey(ServerRoom, null=True, blank=False)
     rack = models.ForeignKey(Rack, null=True, blank=True)
     # deperecated field, use rack instead
-    rack_old = models.CharField(max_length=10, null=True, blank=True)
+    # rack_old = models.CharField(max_length=10, null=True, blank=True)
     slot_no = models.CharField(
         verbose_name=_("slot number"), max_length=3, null=True, blank=True,
         help_text=_('Fill it if asset is blade server'),
@@ -1084,53 +1209,62 @@ class DCAsset(Asset, HistoryMixin, TimeTrackable, SavingUser, SoftDeletable):
 
     # Ralph 3.0 --  new fields
 
+    # server blade -> chassis blade
+    # virtual -> hypervisor
+    # 2 switches -> stacked switch
+    # database -> db server - to be discussed
     parent = models.ForeignKey(
         'self',
         verbose_name=_("physical parent device"),
-        on_delete=models.SET_NULL,
+        on_delete=db.SET_NULL,
         null=True,
         blank=True,
         default=None,
         related_name="child_set",
     )
-    logical_parent = models.ForeignKey(
-        'self',
-        verbose_name=_("logical parent device"),
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        default=None,
-        related_name="logicalchild_set",
-    )
+    # logical parent not needed, since rack location the same
+    # logical_parent = models.ForeignKey(
+    #     'self',
+    #     verbose_name=_("logical parent device"),
+    #     on_delete=models.SET_NULL,
+    #     null=True,
+    #     blank=True,
+    #     default=None,
+    #     related_name="logicalchild_set",
+    # )
     connections = models.ManyToManyField(
         'DCAsset',
         through='Connection',
         symmetrical=False,
     )
-    boot_firmware = models.CharField(
-        verbose_name=_("boot firmware"),
-        null=True,
-        blank=True,
-        max_length=255,
-    )
-    hard_firmware = models.CharField(
-        verbose_name=_("hardware firmware"),
-        null=True,
-        blank=True,
-        max_length=255,
-    )
-    diag_firmware = models.CharField(
-        verbose_name=_("diagnostics firmware"),
-        null=True,
-        blank=True,
-        max_length=255,
-    )
-    mgmt_firmware = models.CharField(
-        verbose_name=_("management firmware"),
-        null=True,
-        blank=True,
-        max_length=255,
-    )
+    # boot_firmware = models.CharField(
+    #     verbose_name=_("boot firmware"),
+    #     null=True,
+    #     blank=True,
+    #     max_length=255,
+    # )
+    # hard_firmware = models.CharField(
+    #     verbose_name=_("hardware firmware"),
+    #     null=True,
+    #     blank=True,
+    #     max_length=255,
+    # )
+    # diag_firmware = models.CharField(
+    #     verbose_name=_("diagnostics firmware"),
+    #     null=True,
+    #     blank=True,
+    #     max_length=255,
+    # )
+    # mgmt_firmware = models.CharField(
+    #     verbose_name=_("management firmware"),
+    #     null=True,
+    #     blank=True,
+    #     max_length=255,
+    # )
+
+    # Configuration path
+
+    # configuration_path = models.CharField(max_length=10, null=True, blank=True)
 
     puppet_venture = models.ForeignKey(
         PuppetVenture,
@@ -1138,30 +1272,40 @@ class DCAsset(Asset, HistoryMixin, TimeTrackable, SavingUser, SoftDeletable):
         null=True,
         blank=True,
         default=None,
-        on_delete=models.SET_NULL,
+        on_delete=db.SET_NULL,
     )
-
 
     puppet_venture_role = models.ForeignKey(
         PuppetVentureRole,
-        on_delete=models.SET_NULL,
+        on_delete=db.SET_NULL,
         verbose_name=_("puppet venture role"),
         null=True,
         blank=True,
         default=None,
     )
-    # TODO: circural reference
-    # management = models.ForeignKey(
-    #     'IPAddress',
-    #     related_name="managed_set",
-    #     verbose_name=_("management address"),
-    #     null=True,
-    #     blank=True,
-    #     default=None,
-    #     on_delete=models.SET_NULL,
-    # )
 
-    verified = models.BooleanField(verbose_name=_("verified"), default=False)
+    management = models.ForeignKey(
+        'IPAddress',
+        related_name="managed_set",
+        verbose_name=_("management address"),
+        null=True,
+        blank=True,
+        default=None,
+        on_delete=db.SET_NULL,
+    )
+
+    # verified = models.BooleanField(verbose_name=_("verified"), default=False)
+
+
+    @property
+    def asset_type(self):
+        return AssetType.data_center
+
+    def get_absolute_url(self):
+        return reverse('device_edit', kwargs={
+            'mode': 'dc',
+            'asset_id': self.id,
+        })
 
     def clean_fields(self, exclude=None):
         """
@@ -1234,33 +1378,6 @@ class DCAsset(Asset, HistoryMixin, TimeTrackable, SavingUser, SoftDeletable):
         super(DCAsset, self).__init__(*args, **kwargs)
 
 
-class BaseItem(SavingUser):
-    name = models.CharField(verbose_name=_("name"), max_length=255)
-    # puppet_venture = models.ForeignKey(
-    #     "business.PuppetVenture",
-    #     verbose_name=_("venture"),
-    #     null=True,
-    #     blank=True,
-    #     default=None,
-    #     on_delete=models.SET_NULL,
-    # )
-    service = models.ForeignKey(
-        ServiceCatalog,
-        default=None,
-        null=True,
-        on_delete=models.PROTECT,
-    )
-    device_environment = models.ForeignKey(
-        DeviceEnvironment,
-        default=None,
-        null=True,
-        on_delete=models.PROTECT,
-    )
-
-    class Meta:
-        abstract = True
-        ordering = ('name',)
-
 
 
 class ConnectionType(Choices):
@@ -1330,13 +1447,13 @@ class Connection(models.Model):
     outbound = models.ForeignKey(
         DCAsset,
         verbose_name=_("connected to device"),
-        on_delete=models.PROTECT,
+        on_delete=db.PROTECT,
         related_name='outbound_connections',
     )
     inbound = models.ForeignKey(
         DCAsset,
         verbose_name=_("connected device"),
-        on_delete=models.PROTECT,
+        on_delete=db.PROTECT,
         related_name='inbound_connections',
     )
     connection_type = models.PositiveIntegerField(
@@ -1356,7 +1473,7 @@ class NetworkConnection(models.Model):
 
     connection = models.OneToOneField(
         Connection,
-        on_delete=models.CASCADE,
+        on_delete=db.CASCADE,
     )
     outbound_port = models.CharField(
         verbose_name=_("outbound port"),
@@ -1380,12 +1497,13 @@ class CoaOemOs(Named):
     """Define oem installed operating system"""
 
 
-class VirtualAsset(Asset, TimeTrackable, SavingUser, SoftDeletable):
+class VirtualAsset(Asset):
     """VMWare virtual system"""
     pass
 
 
-class BOAsset(Asset, TimeTrackable, SavingUser, SoftDeletable):
+class BOAsset(Asset):
+    #, TimeTrackable, SavingUser, SoftDeletable):
     license_key = models.TextField(null=True, blank=True,)
     coa_number = models.CharField(
         max_length=256, verbose_name="COA number", null=True, blank=True,
@@ -1421,6 +1539,16 @@ class BOAsset(Asset, TimeTrackable, SavingUser, SoftDeletable):
         self.save_comment = None
         self.saving_user = None
         super(BOAsset, self).__init__(*args, **kwargs)
+
+    def get_absolute_url(self):
+        return reverse('device_edit', kwargs={
+            'mode': 'dc',
+            'asset_id': self.id,
+        })
+
+    @property
+    def asset_type(self):
+        return AssetType.back_office
 
 
 class PartInfo(TimeTrackable, SavingUser, SoftDeletable):
@@ -1482,61 +1610,7 @@ def device_hostname_assigning(sender, instance, raw, using, **kwargs):
                 instance._try_assign_hostname(commit=False)
 
 
-# -------------------- components -------------------
 
-MAC_PREFIX_BLACKLIST = set([
-    '505054', '33506F', '009876', '000000', '00000C', '204153', '149120',
-    '020054', 'FEFFFF', '1AF920', '020820', 'DEAD2C', 'FEAD4D',
-])
-CPU_CORES = {
-    '5160': 2,
-    'E5320': 4,
-    'E5430': 4,
-    'E5504': 4,
-    'E5506': 4,
-    'E5520': 4,
-    'E5540': 4,
-    'E5630': 4,
-    'E5620': 4,
-    'E5640': 4,
-    'E5645': 6,
-    'E5649': 6,
-    'L5520': 4,
-    'L5530': 4,
-    'L5420': 4,
-    'L5630': 4,
-    'X5460': 4,
-    'X5560': 4,
-    'X5570': 4,
-    'X5650': 6,
-    'X5660': 6,
-    'X5670': 6,
-    'E5-2640': 6,
-    'E5-2670': 8,
-    'E5-2630': 6,
-    'E5-2650': 8,
-    'E7-8837': 8,
-    'E7- 8837': 8,
-    'E7-4870': 10,
-    'E7- 4870': 10,
-    'Processor 275': 2,
-    'Processor 8216': 2,
-    'Processor 6276': 16,
-    'Dual-Core': 2,
-    'Quad-Core': 4,
-    'Six-Core': 6,
-    '2-core': 2,
-    '4-core': 4,
-    '6-core': 6,
-    '8-core': 8,
-}
-CPU_VIRTUAL_LIST = {
-    'bochs',
-    'qemu',
-    'virtual',
-    'vmware',
-    'xen',
-}
 
 
 def cores_from_model(model_name):
@@ -1759,21 +1833,21 @@ class GenericComponent(Component):
         verbose_name=_("vendor SN"), max_length=255, unique=True, null=True,
         blank=True, default=None,
     )
-    boot_firmware = db.CharField(
-        verbose_name=_("boot firmware"), null=True, blank=True, max_length=255,
-    )
-    hard_firmware = db.CharField(
-        verbose_name=_("hardware firmware"), null=True, blank=True,
-        max_length=255,
-    )
-    diag_firmware = db.CharField(
-        verbose_name=_("diagnostics firmware"), null=True, blank=True,
-        max_length=255,
-    )
-    mgmt_firmware = db.CharField(
-        verbose_name=_("management firmware"), null=True, blank=True,
-        max_length=255,
-    )
+    # boot_firmware = db.CharField(
+    #     verbose_name=_("boot firmware"), null=True, blank=True, max_length=255,
+    # )
+    # hard_firmware = db.CharField(
+    #     verbose_name=_("hardware firmware"), null=True, blank=True,
+    #     max_length=255,
+    # )
+    # diag_firmware = db.CharField(
+    #     verbose_name=_("diagnostics firmware"), null=True, blank=True,
+    #     max_length=255,
+    # )
+    # mgmt_firmware = db.CharField(
+    #     verbose_name=_("management firmware"), null=True, blank=True,
+    #     max_length=255,
+    # )
 
     class Meta:
         verbose_name = _("generic component")
@@ -1824,17 +1898,17 @@ class DiskShareMount(TimeTrackable, WithConcurrentGetOrCreate):
     volume = db.CharField(verbose_name=_("volume"),
                           max_length=255, blank=True,
                           null=True, default=None)
-    server = db.ForeignKey(
-        'Asset', verbose_name=_("server"), null=True, blank=True,
-        default=None, related_name='servermount_set',
-    )
+    # server = db.ForeignKey(
+    #     'Asset', verbose_name=_("server"), null=True, blank=True,
+    #     default=None, related_name='servermount_set',
+    # )
     size = db.PositiveIntegerField(
         verbose_name=_("size (MiB)"), null=True, blank=True,
     )
-    address = db.ForeignKey('IPAddress', null=True, blank=True, default=None)
-    is_virtual = db.BooleanField(
-        verbose_name=_("is that a virtual server mount?"), default=False,
-    )
+    # address = db.ForeignKey('IPAddress', null=True, blank=True, default=None)
+    # is_virtual = db.BooleanField(
+    #     verbose_name=_("is that a virtual server mount?"), default=False,
+    # )
 
     class Meta:
         unique_together = ('share', 'asset')
@@ -2110,25 +2184,6 @@ class OperatingSystem(Component):
         operating_system.save(priority=priority)
         return operating_system
 
-import ipaddr
-import urllib
-
-from django.core.exceptions import ValidationError
-from django.db import models as db
-from django.db import IntegrityError
-from django.core.urlresolvers import reverse
-from django.core.cache import cache
-from django.utils.translation import ugettext_lazy as _
-from lck.django.common.models import (
-    TimeTrackable, Named, WithConcurrentGetOrCreate, SavePrioritized,
-)
-
-import ralph.networks.utils as network
-from ralph_assets.models_assets import Asset
-
-from datetime import datetime
-
-
 
 def get_network_tree(qs=None):
     """
@@ -2177,7 +2232,7 @@ def get_network_tree(qs=None):
             break
     return tree
 
-
+# This is scan environment, not Service Env.
 class Environment(Named):
     data_center = db.ForeignKey("DataCenter", verbose_name=_("data center"))
     queue = db.ForeignKey(
@@ -2545,10 +2600,8 @@ class NetworkTerminator(Named):
 
 
 # class DataCenter(Named):
-
 #     def __unicode__(self):
 #         return self.name
-
 #     class Meta:
 #         verbose_name = _("data center")
 #         verbose_name_plural = _("data centers")
@@ -2556,7 +2609,6 @@ class NetworkTerminator(Named):
 
 
 class DiscoveryQueue(Named):
-
     class Meta:
         verbose_name = _("discovery queue")
         verbose_name_plural = _("discovery queues")
@@ -2567,12 +2619,12 @@ def validate_network_address(sender, instance, **kwargs):
     instance.full_clean()
     return
 
-    # clearing cache items for networks sidebar(24 hour cache)
-    ns_items_key = 'cache_network_sidebar_items'
-    if ns_items_key in cache:
-        cache.delete(ns_items_key)
+#     # clearing cache items for networks sidebar(24 hour cache)
+#     ns_items_key = 'cache_network_sidebar_items'
+#     if ns_items_key in cache:
+#         cache.delete(ns_items_key)
 
-db.signals.pre_save.connect(validate_network_address, sender=Network)
+# db.signals.pre_save.connect(validate_network_address, sender=Network)
 
 
 class IPAddress(LastSeen, TimeTrackable, WithConcurrentGetOrCreate):
@@ -2629,12 +2681,12 @@ class IPAddress(LastSeen, TimeTrackable, WithConcurrentGetOrCreate):
     dead_ping_count = db.IntegerField(_("dead ping count"), default=0)
     is_buried = db.BooleanField(_("Buried from autoscan"), default=False)
     #TODO: scan
-    # scan_summary = db.ForeignKey(
-    #     'scan.ScanSummary',
-    #     on_delete=db.SET_NULL,
-    #     null=True,
-    #     blank=True,
-    # )
+    scan_summary = db.ForeignKey(
+        ScanSummary,
+        on_delete=db.SET_NULL,
+        null=True,
+        blank=True,
+    )
     is_public = db.BooleanField(
         _("This is a public address"),
         default=False,
@@ -2720,7 +2772,6 @@ class IPAlias(SavePrioritized, WithConcurrentGetOrCreate):
         verbose_name_plural = _("IP aliases")
 
 
-
 # FIXME:
 # map it with categories from assets
 # class DeviceType(Choices):
@@ -2757,7 +2808,6 @@ class IPAlias(SavePrioritized, WithConcurrentGetOrCreate):
 #     unknown = _("unknown")
 
 
-
 class LoadBalancerType(SavingUser):
     name = db.CharField(
         verbose_name=_("name"),
@@ -2777,9 +2827,6 @@ class LoadBalancerType(SavingUser):
         return self.loadbalancervirtualserver_set.count()
 
 
-
-
-
 class LoadBalancerPool(Named, WithConcurrentGetOrCreate):
 
     class Meta:
@@ -2787,10 +2834,9 @@ class LoadBalancerPool(Named, WithConcurrentGetOrCreate):
         verbose_name_plural = _("load balancer pools")
 
 
-
 class LoadBalancerVirtualServer(BaseItem):
     load_balancer_type = db.ForeignKey(LoadBalancerType, verbose_name=_('load balancer type'))
-    asset = db.ForeignKey(Asset, verbose_name=_("load balancer asset"))
+    asset = db.ForeignKey(DCAsset, verbose_name=_("load balancer asset"))
     default_pool = db.ForeignKey(LoadBalancerPool, null=True)
     address = db.ForeignKey("IPAddress", verbose_name=_("address"))
     port = db.PositiveIntegerField(verbose_name=_("port"))
@@ -2808,7 +2854,7 @@ class LoadBalancerMember(SavePrioritized, WithConcurrentGetOrCreate):
     address = db.ForeignKey("IPAddress", verbose_name=_("address"))
     port = db.PositiveIntegerField(verbose_name=_("port"))
     pool = db.ForeignKey(LoadBalancerPool)
-    asset = db.ForeignKey(Asset, verbose_name=_("load balancer asset"))
+    asset = db.ForeignKey(DCAsset, verbose_name=_("load balancer asset"))
     enabled = db.BooleanField(verbose_name=_("enabled state"))
 
     class Meta:
